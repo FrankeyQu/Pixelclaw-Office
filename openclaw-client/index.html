@@ -1,0 +1,875 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pixelclaw Office - 像素办公室可视化</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            min-height: 100vh;
+            overflow: hidden;
+            color: #fff;
+        }
+
+        .container {
+            display: flex;
+            height: 100vh;
+        }
+
+        /* 主画布区域 */
+        .canvas-container {
+            flex: 1;
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        #officeCanvas {
+            background: #3d3d52;
+            border-radius: 16px;
+            box-shadow: 0 25px 80px rgba(0, 0, 0, 0.6);
+            cursor: default;
+            max-width: 100%;
+            max-height: 85vh;
+        }
+
+        /* 控制面板 */
+        .control-panel {
+            width: 320px;
+            background: rgba(30, 30, 50, 0.95);
+            backdrop-filter: blur(10px);
+            border-left: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 20px;
+            overflow-y: auto;
+        }
+
+        .panel-header {
+            text-align: center;
+            margin-bottom: 25px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #e94560;
+        }
+
+        .panel-header h1 {
+            font-size: 24px;
+            color: #e94560;
+            text-shadow: 0 0 20px rgba(233, 69, 96, 0.5);
+        }
+
+        .panel-header h1.editable-title {
+            cursor: pointer;
+            padding: 4px 8px;
+            border-radius: 6px;
+            transition: background 0.2s;
+        }
+
+        .panel-header h1.editable-title:hover {
+            background: rgba(233, 69, 96, 0.15);
+        }
+
+        .panel-header .scene-name {
+            font-size: 14px;
+            color: #aaa;
+            margin-top: 8px;
+            cursor: pointer;
+            padding: 4px 8px;
+            border-radius: 6px;
+            transition: background 0.2s;
+        }
+
+        .panel-header .scene-name:hover {
+            background: rgba(255, 255, 255, 0.08);
+            color: #fff;
+        }
+
+        .panel-header .scene-name-edit {
+            width: 100%;
+            margin-top: 8px;
+            padding: 8px 10px;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid #e94560;
+            border-radius: 6px;
+            color: #fff;
+            font-size: 14px;
+            font-family: inherit;
+        }
+
+        .panel-header .scene-name-edit:focus {
+            outline: none;
+            border-color: #e94560;
+        }
+
+        /* 控制按钮组 */
+        .control-group {
+            margin-bottom: 25px;
+        }
+
+        .control-group h3 {
+            font-size: 14px;
+            color: #aaa;
+            margin-bottom: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .btn {
+            display: block;
+            width: 100%;
+            padding: 12px 16px;
+            margin-bottom: 10px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-family: inherit;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #e94560, #c73e54);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(233, 69, 96, 0.4);
+        }
+
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.1);
+            color: #fff;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        .btn-success {
+            background: linear-gradient(135deg, #00d9a3, #00b386);
+            color: white;
+        }
+
+        .btn-success:hover {
+            box-shadow: 0 5px 20px rgba(0, 217, 163, 0.4);
+        }
+
+        .btn-warning {
+            background: linear-gradient(135deg, #ffa726, #f57c00);
+            color: white;
+        }
+
+        .btn-info {
+            background: linear-gradient(135deg, #42a5f5, #1976d2);
+            color: white;
+        }
+
+        .status-buttons {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+
+        .status-btn {
+            padding: 10px;
+            font-size: 12px;
+        }
+
+        /* Agent 列表 */
+        .agent-list {
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .agent-list-view-mode {
+            display: flex;
+            gap: 4px;
+            margin-bottom: 10px;
+        }
+
+        .agent-list-view-mode button {
+            padding: 6px 10px;
+            font-size: 11px;
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 6px;
+            color: #aaa;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .agent-list-view-mode button:hover {
+            background: rgba(255, 255, 255, 0.12);
+            color: #fff;
+        }
+
+        .agent-list-view-mode button.active {
+            background: rgba(233, 69, 96, 0.3);
+            border-color: #e94560;
+            color: #fff;
+        }
+
+        .agent-item {
+            display: flex;
+            align-items: center;
+            padding: 10px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            margin-bottom: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .agent-item:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .agent-item.selected {
+            background: rgba(233, 69, 96, 0.2);
+            border: 1px solid #e94560;
+        }
+
+        /* 紧凑条模式 */
+        .agent-list[data-mode="compact"] .agent-item {
+            padding: 6px 10px;
+            margin-bottom: 4px;
+        }
+
+        .agent-list[data-mode="compact"] .agent-avatar {
+            width: 28px;
+            height: 28px;
+            font-size: 14px;
+            margin-right: 10px;
+        }
+
+        .agent-list[data-mode="compact"] .agent-name {
+            font-size: 12px;
+        }
+
+        .agent-list[data-mode="compact"] .agent-status {
+            font-size: 10px;
+            margin-left: auto;
+        }
+
+        /* 方图标模式 */
+        .agent-list[data-mode="icons"] {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+        }
+
+        .agent-list[data-mode="icons"] .agent-item {
+            flex-direction: column;
+            padding: 8px;
+            margin-bottom: 0;
+            text-align: center;
+        }
+
+        .agent-list[data-mode="icons"] .agent-avatar {
+            width: 40px;
+            height: 40px;
+            font-size: 20px;
+            margin-right: 0;
+            margin-bottom: 6px;
+        }
+
+        .agent-list[data-mode="icons"] .agent-name {
+            font-size: 11px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            width: 100%;
+        }
+
+        .agent-list[data-mode="icons"] .agent-status {
+            display: none;
+        }
+
+        .agent-list[data-mode="icons"] .agent-item {
+            position: relative;
+        }
+
+        .agent-list[data-mode="icons"] .agent-avatar::after {
+            content: '';
+            position: absolute;
+            bottom: 2px;
+            right: 2px;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            border: 2px solid #252538;
+        }
+
+        .agent-list[data-mode="icons"] .agent-item[data-status="idle"] .agent-avatar::after { background: #42a5f5; }
+        .agent-list[data-mode="icons"] .agent-item[data-status="walking"] .agent-avatar::after { background: #ffa726; }
+        .agent-list[data-mode="icons"] .agent-item[data-status="working"] .agent-avatar::after { background: #00d9a3; }
+        .agent-list[data-mode="icons"] .agent-item[data-status="talking"] .agent-avatar::after { background: #e94560; }
+
+        .agent-list[data-mode="icons"] .agent-avatar {
+            position: relative;
+        }
+
+        /* 长条模式 - 横向紧凑 */
+        .agent-list[data-mode="bar"] .agent-item {
+            flex-direction: row;
+            padding: 6px 10px;
+            margin-bottom: 4px;
+        }
+
+        .agent-list[data-mode="bar"] .agent-avatar {
+            width: 24px;
+            height: 24px;
+            font-size: 12px;
+            margin-right: 8px;
+            flex-shrink: 0;
+        }
+
+        .agent-list[data-mode="bar"] .agent-info {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .agent-list[data-mode="bar"] .agent-name {
+            font-size: 12px;
+        }
+
+        .agent-list[data-mode="bar"] .agent-status {
+            font-size: 10px;
+            margin-left: auto;
+        }
+
+        .agent-avatar {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            margin-right: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+        }
+
+        .agent-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .agent-name {
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .agent-status {
+            font-size: 11px;
+            color: #888;
+        }
+
+        .status-dot {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 5px;
+        }
+
+        .status-idle { background: #42a5f5; }
+        .status-walking { background: #ffa726; }
+        .status-working { background: #00d9a3; }
+        .status-talking { background: #e94560; }
+
+        /* 统计信息 */
+        .stats {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .stat-card {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #e94560;
+        }
+
+        .stat-label {
+            font-size: 11px;
+            color: #888;
+            margin-top: 5px;
+        }
+
+        /* 配置面板模态框 */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        .modal-overlay.active {
+            display: flex;
+        }
+
+        .modal {
+            background: #1e1e32;
+            border-radius: 16px;
+            width: 90%;
+            max-width: 450px;
+            max-height: 90vh;
+            overflow: hidden;
+            box-shadow: 0 25px 80px rgba(0, 0, 0, 0.6);
+        }
+
+        .modal-header {
+            padding: 20px;
+            background: linear-gradient(135deg, #e94560, #c73e54);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-header h2 {
+            font-size: 18px;
+        }
+
+        .modal-close {
+            background: none;
+            border: none;
+            color: white;
+            font-size: 24px;
+            cursor: pointer;
+            opacity: 0.8;
+            transition: opacity 0.3s;
+        }
+
+        .modal-close:hover {
+            opacity: 1;
+        }
+
+        .modal-body {
+            padding: 20px;
+            overflow-y: auto;
+            max-height: 60vh;
+        }
+
+        .form-group {
+            margin-bottom: 16px;
+        }
+
+        .form-group label {
+            display: block;
+            font-size: 12px;
+            color: #aaa;
+            margin-bottom: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .form-group input,
+        .form-group select,
+        .form-group textarea {
+            width: 100%;
+            padding: 12px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            color: white;
+            font-family: inherit;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+
+        .form-group input:focus,
+        .form-group select:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: #e94560;
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        .form-group textarea {
+            min-height: 80px;
+            resize: vertical;
+        }
+
+        .modal-footer {
+            padding: 15px 20px;
+            background: rgba(0, 0, 0, 0.2);
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+        }
+
+        .btn-small {
+            padding: 8px 16px;
+            font-size: 13px;
+            width: auto;
+        }
+
+        /* 聊天窗口 */
+        .chat-modal .modal-body {
+            display: flex;
+            flex-direction: column;
+            height: 400px;
+            max-height: none;
+        }
+
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 10px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 8px;
+            margin-bottom: 15px;
+        }
+
+        .chat-message {
+            margin-bottom: 12px;
+            padding: 10px 14px;
+            border-radius: 12px;
+            max-width: 80%;
+            word-wrap: break-word;
+        }
+
+        .chat-message.user {
+            background: linear-gradient(135deg, #e94560, #c73e54);
+            margin-left: auto;
+            border-bottom-right-radius: 4px;
+        }
+
+        .chat-message.agent {
+            background: rgba(255, 255, 255, 0.1);
+            border-bottom-left-radius: 4px;
+        }
+
+        .chat-message .sender {
+            font-size: 11px;
+            opacity: 0.7;
+            margin-bottom: 4px;
+        }
+
+        .chat-input-area {
+            display: flex;
+            gap: 10px;
+        }
+
+        .chat-input {
+            flex: 1;
+            padding: 12px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            color: white;
+            font-family: inherit;
+        }
+
+        .chat-input:focus {
+            outline: none;
+            border-color: #e94560;
+        }
+
+        /* 提示信息 */
+        .tooltip {
+            position: fixed;
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            pointer-events: none;
+            z-index: 100;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        .tooltip.active {
+            opacity: 1;
+        }
+
+        /* 加载动画 */
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: #1a1a2e;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 2000;
+            transition: opacity 0.5s;
+        }
+
+        .loading-overlay.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .loading-spinner {
+            width: 60px;
+            height: 60px;
+            border: 4px solid rgba(233, 69, 96, 0.2);
+            border-top-color: #e94560;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .loading-text {
+            margin-top: 20px;
+            color: #888;
+            font-size: 14px;
+        }
+
+        .loading-progress {
+            width: 200px;
+            height: 4px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 2px;
+            margin-top: 15px;
+            overflow: hidden;
+        }
+
+        .loading-progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, #e94560, #c73e54);
+            border-radius: 2px;
+            transition: width 0.3s;
+        }
+
+        /* 响应式 */
+        @media (max-width: 900px) {
+            .container {
+                flex-direction: column;
+            }
+            
+            .control-panel {
+                width: 100%;
+                height: 200px;
+                border-left: none;
+                border-top: 1px solid rgba(255, 255, 255, 0.1);
+            }
+        }
+
+        /* 滚动条样式 */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: rgba(0, 0, 0, 0.2);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: rgba(233, 69, 96, 0.5);
+            border-radius: 3px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(233, 69, 96, 0.7);
+        }
+    </style>
+</head>
+<body>
+    <!-- 加载画面 -->
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="loading-spinner"></div>
+        <div class="loading-text">正在加载资源...</div>
+        <div class="loading-progress">
+            <div class="loading-progress-bar" id="loadingProgressBar" style="width: 0%"></div>
+        </div>
+    </div>
+
+    <div class="container">
+        <!-- 画布区域 -->
+        <div class="canvas-container">
+            <canvas id="officeCanvas"></canvas>
+        </div>
+
+        <!-- 控制面板 -->
+        <div class="control-panel">
+            <div class="panel-header">
+                <h1 id="projectNameDisplay" class="editable-title" title="点击修改项目名称" onclick="pixelOffice.startEditProjectName()">Pixelclaw Office</h1>
+                <input type="text" id="projectNameInput" class="scene-name-edit" style="display: none; font-size: 20px; font-weight: bold;" 
+                    placeholder="项目名称" 
+                    onblur="pixelOffice.finishEditProjectName()" 
+                    onkeydown="pixelOffice.handleProjectNameKeydown(event)">
+                <div id="sceneNameDisplay" class="scene-name" title="点击修改场景名称" onclick="pixelOffice.startEditSceneName()">亚信数字-销售部</div>
+                <input type="text" id="sceneNameInput" class="scene-name-edit" style="display: none;" 
+                    placeholder="输入场景名称" 
+                    onblur="pixelOffice.finishEditSceneName()" 
+                    onkeydown="pixelOffice.handleSceneNameKeydown(event)">
+            </div>
+
+            <!-- 统计信息 -->
+            <div class="stats">
+                <div class="stat-card">
+                    <div class="stat-value" id="agentCount">0</div>
+                    <div class="stat-label">Agent 数量</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="onlineCount">0</div>
+                    <div class="stat-label">在线</div>
+                </div>
+            </div>
+
+            <!-- Agent 控制 -->
+            <div class="control-group">
+                <h3>Agent 控制</h3>
+                <button class="btn btn-primary" onclick="pixelOffice.addAgent()">
+                    + 添加 Agent
+                </button>
+                <button class="btn btn-secondary" onclick="pixelOffice.clearAgents()">
+                    清除所有 Agent
+                </button>
+            </div>
+
+            <!-- 状态控制 -->
+            <div class="control-group">
+                <h3>全局状态控制</h3>
+                <div class="status-buttons">
+                    <button class="btn btn-secondary status-btn" onclick="pixelOffice.setAllStatus('idle')">
+                        全部待机
+                    </button>
+                    <button class="btn btn-success status-btn" onclick="pixelOffice.setAllStatus('working')">
+                        全部工作
+                    </button>
+                    <button class="btn btn-warning status-btn" onclick="pixelOffice.setAllStatus('walking')">
+                        全部走动
+                    </button>
+                    <button class="btn btn-info status-btn" onclick="pixelOffice.setAllStatus('talking')">
+                        全部对话
+                    </button>
+                </div>
+            </div>
+
+            <!-- Agent 列表 -->
+            <div class="control-group">
+                <h3>Agent 列表</h3>
+                <div class="agent-list-view-mode">
+                    <button type="button" data-mode="list" class="active" title="长列表" onclick="pixelOffice.setAgentListViewMode('list')">📋 列表</button>
+                    <button type="button" data-mode="compact" title="紧凑条" onclick="pixelOffice.setAgentListViewMode('compact')">📝 紧凑</button>
+                    <button type="button" data-mode="icons" title="方图标" onclick="pixelOffice.setAgentListViewMode('icons')">🔲 图标</button>
+                    <button type="button" data-mode="bar" title="长条" onclick="pixelOffice.setAgentListViewMode('bar')">▬ 长条</button>
+                </div>
+                <div class="agent-list" id="agentList" data-mode="list">
+                    <!-- 动态生成 -->
+                </div>
+            </div>
+
+            <!-- 视图控制 -->
+            <div class="control-group">
+                <h3>视图控制</h3>
+                <button class="btn btn-secondary" onclick="pixelOffice.resetView()">
+                    重置视图
+                </button>
+                <button class="btn btn-secondary" onclick="pixelOffice.toggleGrid()">
+                    切换网格
+                </button>
+            </div>
+
+            <!-- 地图编辑 -->
+            <div class="control-group">
+                <h3>地图编辑</h3>
+                <a href="editor.html" class="btn btn-success" style="text-decoration: none; display: block; text-align: center; margin-bottom: 10px;">
+                    🗺️ 打开地图编辑器
+                </a>
+                <a href="asset-system.html" class="btn btn-primary" style="text-decoration: none; display: block; text-align: center;">
+                    🔴 点阵资产系统
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Agent 配置模态框 -->
+    <div class="modal-overlay" id="configModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2>Agent 配置</h2>
+                <button class="modal-close" onclick="pixelOffice.closeConfigModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Agent 名称</label>
+                    <input type="text" id="agentName" placeholder="输入名称">
+                </div>
+                <div class="form-group">
+                    <label>当前状态</label>
+                    <select id="agentStatus">
+                        <option value="idle">待机 (Idle)</option>
+                        <option value="walking">走动 (Walking)</option>
+                        <option value="working">工作 (Working)</option>
+                        <option value="talking">对话 (Talking)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>性格描述</label>
+                    <textarea id="agentPersonality" placeholder="描述这个 Agent 的性格特点..."></textarea>
+                </div>
+                <div class="form-group">
+                    <label>通信频道</label>
+                    <input type="text" id="agentChannel" placeholder="例如: general, dev, design">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary btn-small" onclick="pixelOffice.closeConfigModal()">取消</button>
+                <button class="btn btn-primary btn-small" onclick="pixelOffice.saveAgentConfig()">保存</button>
+                <button class="btn btn-success btn-small" onclick="pixelOffice.openChat()">对话</button>
+                <button class="btn btn-secondary btn-small" onclick="pixelOffice.deleteAgent()" style="background: #dc3545;">删除</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 聊天模态框 -->
+    <div class="modal-overlay chat-modal" id="chatModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2 id="chatTitle">与 Agent 对话</h2>
+                <button class="modal-close" onclick="pixelOffice.closeChatModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="chat-messages" id="chatMessages">
+                    <!-- 动态生成 -->
+                </div>
+                <div class="chat-input-area">
+                    <input type="text" class="chat-input" id="chatInput" placeholder="输入消息..." onkeypress="pixelOffice.handleChatKeypress(event)">
+                    <button class="btn btn-primary" onclick="pixelOffice.sendMessage()">发送</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 提示框 -->
+    <div class="tooltip" id="tooltip"></div>
+
+    <script src="pixel-office.js"></script>
+</body>
+</html>
