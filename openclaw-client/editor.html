@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pixelclaw Office 地图编辑器</title>
+    <title>Pixelclaw Office 地图/资产编辑器</title>
     <style>
         * {
             margin: 0;
@@ -24,13 +24,129 @@
             height: 100vh;
         }
 
-        /* 左侧元素库 */
-        .asset-library {
+        /* 左侧面板：模板 + 元素库 */
+        .left-panel {
             width: 280px;
             background: #252538;
             border-right: 1px solid #333;
             display: flex;
             flex-direction: column;
+            overflow: hidden;
+        }
+
+        .template-panel {
+            flex-shrink: 0;
+            border-bottom: 1px solid #333;
+        }
+
+        .template-header {
+            padding: 12px 15px;
+            background: #1e1e32;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .template-header h2 {
+            font-size: 16px;
+            color: #e94560;
+            margin: 0;
+        }
+
+        .template-save-btn {
+            padding: 6px 12px;
+            background: linear-gradient(135deg, #00d9a3, #00b386);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 12px;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+
+        .template-save-btn:hover {
+            box-shadow: 0 3px 12px rgba(0, 217, 163, 0.4);
+        }
+
+        .template-list {
+            max-height: 160px;
+            overflow-y: auto;
+            padding: 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .template-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 12px;
+            background: #2a2a40;
+            border: 2px solid transparent;
+            border-radius: 8px;
+            cursor: grab;
+            transition: all 0.2s;
+        }
+
+        .template-item:hover {
+            border-color: #e94560;
+            background: #323250;
+        }
+
+        .template-item.dragging {
+            opacity: 0.6;
+            cursor: grabbing;
+        }
+
+        .template-item-icon {
+            font-size: 24px;
+            width: 36px;
+            text-align: center;
+        }
+
+        .template-item-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .template-item-name {
+            font-size: 13px;
+            font-weight: 500;
+            color: #fff;
+        }
+
+        .template-item-count {
+            font-size: 11px;
+            color: #888;
+        }
+
+        .template-item-actions {
+            display: flex;
+            gap: 4px;
+        }
+
+        .template-item-btn {
+            padding: 4px 8px;
+            background: #3a3a50;
+            border: none;
+            border-radius: 4px;
+            color: #aaa;
+            font-size: 11px;
+            cursor: pointer;
+        }
+
+        .template-item-btn:hover {
+            background: #e94560;
+            color: #fff;
+        }
+
+        .asset-library {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
         }
 
         .library-header {
@@ -140,13 +256,31 @@
         }
 
         .toolbar {
-            height: 50px;
+            min-height: 48px;
             background: #252538;
             border-bottom: 1px solid #333;
             display: flex;
+            flex-wrap: wrap;
             align-items: center;
-            padding: 0 15px;
-            gap: 10px;
+            padding: 8px 15px;
+            gap: 8px;
+        }
+        .toolbar-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .toolbar-group {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding-right: 8px;
+            border-right: 1px solid #444;
+        }
+        .toolbar-group:last-child {
+            border-right: none;
+            padding-right: 0;
         }
 
         .tool-btn {
@@ -166,6 +300,35 @@
 
         .tool-btn.active {
             background: #e94560;
+            border-color: #e94560;
+        }
+
+        .key-hint {
+            display: inline-block;
+            margin-left: 4px;
+            padding: 1px 5px;
+            font-size: 10px;
+            background: rgba(0,0,0,0.3);
+            border-radius: 4px;
+            color: #aaa;
+        }
+
+        .tool-select {
+            padding: 8px 12px;
+            background: #2a2a40;
+            border: 1px solid #444;
+            color: #fff;
+            border-radius: 6px;
+            font-size: 13px;
+            cursor: pointer;
+        }
+
+        .tool-select:hover {
+            background: #3a3a50;
+        }
+
+        .tool-select:focus {
+            outline: none;
             border-color: #e94560;
         }
 
@@ -486,43 +649,89 @@
 </head>
 <body>
     <div class="editor-container">
-        <!-- 左侧元素库 -->
-        <div class="asset-library">
+        <!-- 左侧：模板 + 元素库 -->
+        <div class="left-panel">
+            <!-- 模板区 -->
+            <div class="template-panel">
+                <div class="template-header">
+                    <h2>📂 模板</h2>
+                    <button class="template-save-btn" onclick="editor.saveAsTemplate()" title="将当前画布保存为模板">+ 保存为模板</button>
+                </div>
+                <div class="template-list" id="templateList">
+                    <!-- 动态生成 -->
+                </div>
+            </div>
+            <!-- 元素库 -->
+            <div class="asset-library">
             <div class="library-header">
                 <h2>📦 元素库</h2>
-                <button class="upload-btn" onclick="editor.showUploadDialog()">
-                    + 上传图片
-                </button>
+                <button class="upload-btn" onclick="editor.showUploadDialog()" style="margin-bottom:6px;">+ 上传图片</button>
+                <button class="upload-btn" onclick="editor.showAIGenerator()" style="background:linear-gradient(135deg,#42a5f5,#1976d2);margin-bottom:6px;">🤖 AI生成</button>
                 <input type="file" id="fileUpload" accept="image/*" multiple onchange="editor.handleFileUpload(event)">
             </div>
             <div class="asset-categories" id="assetCategories">
                 <!-- 动态生成 -->
+            </div>
             </div>
         </div>
 
         <!-- 中间画布区域 -->
         <div class="canvas-area">
             <div class="toolbar">
-                <a href="index.html" class="tool-btn" style="text-decoration: none; background: #42a5f5; border-color: #42a5f5;">🏠 返回主页</a>
-                <div class="tool-separator"></div>
-                <button class="tool-btn active" onclick="editor.setTool('select')" id="tool-select">选择</button>
-                <button class="tool-btn" onclick="editor.setTool('move')" id="tool-move">移动</button>
-                <button class="tool-btn" onclick="editor.setTool('collision')" id="tool-collision" title="在画布上点击元素内格子设置碰撞区域（碰撞仅影响元素间碰撞）">碰撞编辑</button>
-                <button class="tool-btn" onclick="editor.setTool('erase')" id="tool-erase">橡皮擦</button>
-                <div class="tool-separator"></div>
-                <button class="tool-btn" onclick="editor.clearMap()">清空地图</button>
-                <button class="tool-btn" onclick="editor.exportMap()">导出配置</button>
-                <button class="tool-btn" onclick="editor.showCanvasSettings()">画布设置</button>
-                <div class="grid-toggle">
-                    <span>显示网格</span>
-                    <div class="toggle-switch active" onclick="editor.toggleGrid()" id="gridToggle"></div>
+                <div class="toolbar-group">
+                    <a href="index.html" class="tool-btn" style="text-decoration: none; background: #42a5f5; border-color: #42a5f5;">🏠 返回</a>
+                    <button class="tool-btn" onclick="editor.applyAsCurrentMap()" style="background: linear-gradient(135deg, #00d9a3, #00b386); border-color: #00b386;" title="将当前地图设为办公室使用的地图">✓ 应用为当前地图</button>
+                </div>
+                <div class="toolbar-group">
+                    <button class="tool-btn" id="btn-undo" onclick="editor.undo()" title="撤销 Ctrl+Z">↶ 上一步</button>
+                    <button class="tool-btn" id="btn-redo" onclick="editor.redo()" title="重做 Ctrl+Y">↷ 下一步</button>
+                </div>
+                <div class="toolbar-group">
+                    <button class="tool-btn active" onclick="editor.setTool('select')" id="tool-select">选择</button>
+                    <button class="tool-btn" onclick="editor.setTool('move')" id="tool-move">移动</button>
+                    <button class="tool-btn" onclick="editor.setTool('collision')" id="tool-collision" title="碰撞编辑 Ctrl">碰撞<span class="key-hint">Ctrl</span></button>
+                    <button class="tool-btn" onclick="editor.setTool('erase')" id="tool-erase" title="橡皮擦 C">橡皮擦<span class="key-hint">C</span></button>
+                </div>
+                <div class="toolbar-group">
+                    <button class="tool-btn" onclick="editor.setTool('grid')" id="tool-grid">格子笔</button>
+                    <button class="tool-btn" onclick="editor.setTool('gridEraser')" id="tool-gridEraser">格子橡皮</button>
+                    <button class="tool-btn" onclick="editor.setTool('picker')" id="tool-picker">取色</button>
+                    <button class="tool-btn" onclick="editor.setTool('fill')" id="tool-fill">填充</button>
+                </div>
+                <div class="toolbar-group">
+                    <button class="tool-btn" onclick="editor.startCropMode()" id="tool-crop" title="裁剪选中元素的图片，蓝色虚线框调整范围">裁剪</button>
+                </div>
+                <div class="toolbar-group">
+                    <button class="tool-btn" onclick="editor.clearMap()">清空地图</button>
+                    <button class="tool-btn" onclick="editor.clearDrawLayer()" title="清空绘制层">清空绘制</button>
+                </div>
+                <div class="toolbar-group">
+                    <button class="tool-btn" onclick="editor.exportMap()">导出</button>
+                    <button class="tool-btn" onclick="editor.showCanvasSettings()">画布设置</button>
+                </div>
+                <div class="toolbar-group">
+                    <div class="grid-toggle" style="display:flex;align-items:center;gap:8px;">
+                        <span style="font-size:12px;color:#aaa;">网格</span>
+                        <div class="toggle-switch active" onclick="editor.toggleGrid()" id="gridToggle"></div>
+                    </div>
                 </div>
             </div>
-            <div class="canvas-wrapper">
+            <div class="palette-row" id="paletteRow" style="display:flex;gap:4px;padding:6px 12px;background:#252538;border-bottom:1px solid #333;flex-wrap:wrap;align-items:center;">
+                <span style="font-size:12px;color:#aaa;margin-right:8px;">绘制颜色:</span>
+                <div id="paletteStrip" style="display:flex;gap:2px;flex-wrap:wrap;"></div>
+            </div>
+            <div class="canvas-wrapper" style="position:relative;">
                 <canvas id="editorCanvas"></canvas>
+                <canvas id="cropOverlay" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);pointer-events:none;display:none;"></canvas>
                 <div class="canvas-info">
                     <span id="canvasInfo">1000 x 750 px | 网格: 20px</span>
                 </div>
+                <div id="cropHint" style="display:none;position:absolute;bottom:10px;right:10px;background:rgba(0,0,0,0.8);padding:8px 12px;border-radius:6px;font-size:12px;color:#aaa;">
+                    拖拽控制点调整 | Enter 确认 | Esc 取消
+                </div>
+                <button id="cropConfirmBtn" onclick="editor.confirmCrop()" style="display:none;position:absolute;top:10px;right:10px;padding:8px 16px;background:linear-gradient(135deg,#00d9a3,#00b386);color:#fff;border:none;border-radius:6px;font-size:13px;cursor:pointer;box-shadow:0 3px 10px rgba(0,217,163,0.4);">
+                    ✓ 确认裁剪
+                </button>
             </div>
         </div>
 
@@ -540,6 +749,33 @@
         </div>
     </div>
 
+    <!-- 裁剪确认弹窗 -->
+    <div id="cropConfirmDialog" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);justify-content:center;align-items:center;z-index:3000;">
+        <div style="background:#1a1a2e;border:1px solid #333;border-radius:12px;padding:24px;min-width:260px;">
+            <h3 style="color:#42a5f5;margin-bottom:16px;">✂️ 裁剪完成</h3>
+            <p style="color:#aaa;font-size:13px;margin-bottom:16px;">如何保存裁剪后的图片？</p>
+            <div style="display:flex;gap:10px;">
+                <button class="tool-btn" onclick="editor.applyCrop(true)" style="flex:1;">覆盖原图</button>
+                <button class="tool-btn" onclick="editor.applyCrop(false)" style="flex:1;background:linear-gradient(135deg,#00d9a3,#00b386);">另存为新</button>
+                <button class="tool-btn" onclick="editor.cancelCrop()">取消</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- AI生成弹窗 -->
+    <div id="aiDialog" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);justify-content:center;align-items:center;z-index:3000;flex-direction:column;">
+        <div style="background:#1a1a2e;border:1px solid #333;border-radius:12px;padding:24px;min-width:280px;">
+            <h3 style="color:#e94560;margin-bottom:16px;">🤖 AI生成图案</h3>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                <button class="tool-btn" onclick="editor.addAIPattern('house')">🏠 房子</button>
+                <button class="tool-btn" onclick="editor.addAIPattern('desk')">🪑 办公桌</button>
+                <button class="tool-btn" onclick="editor.addAIPattern('plant')">🪴 盆栽</button>
+                <button class="tool-btn" onclick="editor.addAIPattern('animal')">🐱 小动物</button>
+            </div>
+            <button class="tool-btn" onclick="editor.closeAIDialog()" style="margin-top:16px;width:100%;">取消</button>
+        </div>
+    </div>
+    <script src="ai-patterns.js"></script>
     <script src="map-editor.js"></script>
 </body>
 </html>

@@ -37,10 +37,13 @@ class MapElement {
         this.properties = {
             solid: true,
             interactive: false,
+            locked: false,
             layer: 1,
             opacity: 1,
             rotation: 0,
-            scale: 1
+            scale: 1,
+            flipH: false,
+            flipV: false
         };
         
         // 碰撞边界 - 使用像素块矩阵，动态大小
@@ -186,14 +189,339 @@ class MapEditor {
             offsetY: 0
         };
 
+        this.resizeState = {
+            isResizing: false,
+            element: null,
+            handle: 0,
+            startX: 0,
+            startY: 0,
+            startElX: 0,
+            startElY: 0,
+            startW: 0,
+            startH: 0
+        };
+
+        this.templates = [];
+        this.cKeyHeld = false;
+
+        // 撤销/重做
+        this.undoStack = [];
+        this.redoStack = [];
+        this.MAX_HISTORY = 30;
+        this.isRestoring = false;
+
+        // 像素绘制层（格子笔、格子橡皮、取色、填充）
+        this.drawLayer = null;
+        this.drawLayerCtx = null;
+        this.palette = this.getDefaultPalette();
+        this.selectedColor = 0;
+        this.isPixelDrawing = false;
+        this.lastPixelCell = null;
+
+        // 碰撞编辑拖动：连续选择；Shift+拖动为横列/纵列
+        this.collisionDrawState = { active: false, startRow: 0, startCol: 0, lastRow: -1, lastCol: -1, setValue: true };
+
+        // 裁剪模式（WPS 风格，8 个控制点，蓝色虚线框）
+        this.cropMode = false;
+        this.cropElement = null;
+        this.cropRect = null;  // 元素局部坐标 { x, y, w, h }
+        this.cropDragState = { active: false, handle: -1, startX: 0, startY: 0, startRect: null };
+
         this.init();
+    }
+
+    getDefaultPalette() {
+        return [
+            [0, 0, 0], [255, 255, 255], [200, 50, 50], [50, 150, 50], [50, 50, 200],
+            [255, 200, 50], [200, 50, 200], [50, 200, 200], [150, 100, 50],
+            [100, 100, 100], [180, 180, 180], [255, 100, 100], [100, 200, 100],
+            [100, 100, 255], [255, 220, 100]
+        ];
+    }
+
+    initDrawLayer() {
+        this.drawLayer = document.createElement('canvas');
+        this.drawLayer.width = this.canvas.width;
+        this.drawLayer.height = this.canvas.height;
+        this.drawLayerCtx = this.drawLayer.getContext('2d');
+        this.drawLayerCtx.clearRect(0, 0, this.drawLayer.width, this.drawLayer.height);
+        this.renderPaletteUI();
+    }
+
+    resizeDrawLayer() {
+        if (!this.drawLayer || !this.drawLayerCtx) return;
+        const oldW = this.drawLayer.width;
+        const oldH = this.drawLayer.height;
+        const newW = this.canvas.width;
+        const newH = this.canvas.height;
+        if (oldW === newW && oldH === newH) return;
+        const temp = document.createElement('canvas');
+        temp.width = oldW;
+        temp.height = oldH;
+        temp.getContext('2d').drawImage(this.drawLayer, 0, 0);
+        this.drawLayer.width = newW;
+        this.drawLayer.height = newH;
+        this.drawLayerCtx.clearRect(0, 0, newW, newH);
+        this.drawLayerCtx.drawImage(temp, 0, 0);
+    }
+
+    renderPaletteUI() {
+        const strip = document.getElementById('paletteStrip');
+        if (!strip) return;
+        strip.innerHTML = '';
+        this.palette.forEach((c, i) => {
+            const swatch = document.createElement('div');
+            swatch.style.cssText = `width:20px;height:20px;background:rgb(${c[0]},${c[1]},${c[2]});border:2px solid ${i === this.selectedColor ? '#e94560' : '#555'};cursor:pointer;border-radius:4px;`;
+            swatch.title = `颜色 ${i + 1}`;
+            swatch.onclick = () => this.selectColor(i);
+            strip.appendChild(swatch);
+        });
+    }
+
+    selectColor(index) {
+        this.selectedColor = Math.max(0, Math.min(index, this.palette.length - 1));
+        this.renderPaletteUI();
+    }
+
+    // ==================== 撤销/重做 ====================
+    saveState() {
+        if (this.isRestoring) return;
+        const state = {
+            elements: this.elements.map(el => ({
+                id: el.id,
+                type: el.type,
+                x: el.x,
+                y: el.y,
+                pixelBlocks: { ...el.pixelBlocks },
+                name: el.name,
+                properties: { ...el.properties },
+                collisionBounds: el.collisionBounds.map(r => [...r]),
+                assetKey: el.assetKey,
+                imageSrc: el.image && el.image.complete ? el.image.src : null
+            })),
+            drawLayer: this.drawLayer && this.drawLayer.width > 0 ? this.drawLayer.toDataURL('image/png') : null,
+            nextId: this.nextId,
+            selectedId: this.selectedElement ? this.selectedElement.id : null
+        };
+        this.undoStack.push(state);
+        if (this.undoStack.length > this.MAX_HISTORY) this.undoStack.shift();
+        this.redoStack = [];
+        this.updateUndoRedoUI();
+    }
+
+    async restoreState(state) {
+        this.isRestoring = true;
+        this.elements = [];
+        this.selectedElement = null;
+        this.nextId = state.nextId || 1;
+        const selId = state.selectedId;
+
+        const loadEl = (elData) => new Promise((resolve) => {
+            let src = elData.imageSrc;
+            if (!src && elData.assetKey && this.assets.has(elData.assetKey)) {
+                const asset = this.assets.get(elData.assetKey);
+                src = asset.image && asset.image.complete ? asset.image.src : '';
+            }
+            if (!src) { resolve(); return; }
+            const img = new Image();
+            img.onload = () => {
+                const el = new MapElement(elData.id, elData.type, elData.x, elData.y, img, elData.name, elData.pixelBlocks);
+                el.properties = elData.properties || { solid: true, interactive: false, locked: false, layer: 1, opacity: 1, rotation: 0, scale: 1 };
+                if (elData.collisionBounds && elData.collisionBounds.length === el.pixelBlocks.h) {
+                    el.collisionBounds = elData.collisionBounds.map(r => Array.isArray(r) ? [...r] : []);
+                }
+                if (elData.assetKey) el.assetKey = elData.assetKey;
+                this.elements.push(el);
+                if (selId && el.id === selId) this.selectedElement = el;
+                resolve();
+            };
+            img.onerror = () => resolve();
+            img.src = src;
+        });
+
+        for (const elData of (state.elements || [])) {
+            await loadEl(elData);
+        }
+        if (selId && !this.selectedElement) {
+            this.selectedElement = this.elements.find(e => e.id === selId) || null;
+        }
+
+        if (state.drawLayer && this.drawLayerCtx) {
+            const img = new Image();
+            img.onload = () => {
+                this.drawLayerCtx.clearRect(0, 0, this.drawLayer.width, this.drawLayer.height);
+                this.drawLayerCtx.drawImage(img, 0, 0);
+            };
+            img.src = state.drawLayer;
+        } else if (this.drawLayerCtx) {
+            this.drawLayerCtx.clearRect(0, 0, this.drawLayer.width, this.drawLayer.height);
+        }
+
+        this.isRestoring = false;
+        this.updateUndoRedoUI();
+        this.updatePropertiesPanel();
+    }
+
+    undo() {
+        if (this.undoStack.length === 0) return;
+        this.redoStack.push(this.getCurrentState());
+        const state = this.undoStack.pop();
+        this.restoreState(state);
+        this.showNotification('已撤销');
+    }
+
+    redo() {
+        if (this.redoStack.length === 0) return;
+        this.undoStack.push(this.getCurrentState());
+        const state = this.redoStack.pop();
+        this.restoreState(state);
+        this.showNotification('已重做');
+    }
+
+    getCurrentState() {
+        return {
+            elements: this.elements.map(el => ({
+                id: el.id,
+                type: el.type,
+                x: el.x,
+                y: el.y,
+                pixelBlocks: { ...el.pixelBlocks },
+                name: el.name,
+                properties: { ...el.properties },
+                collisionBounds: el.collisionBounds.map(r => [...r]),
+                assetKey: el.assetKey,
+                imageSrc: el.image && el.image.complete ? el.image.src : null
+            })),
+            drawLayer: this.drawLayer && this.drawLayer.width > 0 ? this.drawLayer.toDataURL('image/png') : null,
+            nextId: this.nextId,
+            selectedId: this.selectedElement ? this.selectedElement.id : null
+        };
+    }
+
+    updateUndoRedoUI() {
+        const undoBtn = document.getElementById('btn-undo');
+        const redoBtn = document.getElementById('btn-redo');
+        if (undoBtn) undoBtn.disabled = this.undoStack.length === 0;
+        if (redoBtn) redoBtn.disabled = this.redoStack.length === 0;
+    }
+
+    loadCurrentMap() {
+        try {
+            const params = new URLSearchParams(window.location.search);
+            const wantCurrent = params.has('loadCurrent');
+            let raw = localStorage.getItem('pixelOfficeCurrentMap');
+            if (raw) {
+                const data = JSON.parse(raw);
+                if (data.canvas && data.elements) {
+                    this.loadFromConfig(data);
+                    this.showNotification('已加载当前使用的地图');
+                    return;
+                }
+            }
+            if (wantCurrent && this.templates.length > 0) {
+                this.loadTemplate(0);
+                this.showNotification('已加载默认模板（销售部）');
+            }
+        } catch (e) { console.warn('加载当前地图失败', e); }
+    }
+
+    renderToCleanImage() {
+        const c = document.createElement('canvas');
+        c.width = this.canvas.width;
+        c.height = this.canvas.height;
+        const ctx = c.getContext('2d');
+        ctx.fillStyle = '#2d2d44';
+        ctx.fillRect(0, 0, c.width, c.height);
+        if (this.drawLayer) ctx.drawImage(this.drawLayer, 0, 0);
+        const sorted = [...this.elements].sort((a, b) => (a.properties.layer || 1) - (b.properties.layer || 1));
+        sorted.forEach(el => this.renderElementTo(ctx, el));
+        return c.toDataURL('image/png');
+    }
+
+    renderElementTo(ctx, element) {
+        const { x, y, width, height, image, properties } = element;
+        const isFloor = element.type === 'floor' || (element.assetKey && String(element.assetKey).startsWith('floor'));
+        ctx.save();
+        ctx.globalAlpha = properties.opacity ?? 1;
+        if (!isFloor && properties.rotation) {
+            ctx.translate(x + width / 2, y + height / 2);
+            ctx.rotate((properties.rotation || 0) * Math.PI / 180);
+            ctx.translate(-(x + width / 2), -(y + height / 2));
+        }
+        if (!isFloor && properties.scale && properties.scale !== 1) {
+            ctx.translate(x + width / 2, y + height / 2);
+            ctx.scale(properties.scale, properties.scale);
+            ctx.translate(-(x + width / 2), -(y + height / 2));
+        }
+        if (!isFloor && (properties.flipH || properties.flipV)) {
+            const sx = properties.flipH ? -1 : 1, sy = properties.flipV ? -1 : 1;
+            ctx.translate(x + width / 2, y + height / 2);
+            ctx.scale(sx, sy);
+            ctx.translate(-(x + width / 2), -(y + height / 2));
+        }
+        if (image && image.complete) {
+            if (isFloor) {
+                const gs = CONFIG.GRID_SIZE;
+                for (let row = 0; row < element.pixelBlocks.h; row++)
+                    for (let col = 0; col < element.pixelBlocks.w; col++)
+                        ctx.drawImage(image, x + col * gs, y + row * gs, gs, gs);
+            } else {
+                ctx.drawImage(image, x, y, width, height);
+            }
+        } else {
+            ctx.fillStyle = '#555';
+            ctx.fillRect(x, y, width, height);
+        }
+        ctx.restore();
+    }
+
+    applyAsCurrentMap() {
+        const exportData = this.getExportData();
+        try {
+            let imageData = null;
+            try { imageData = this.renderToCleanImage(); } catch (_) {}
+            const payload = { ...exportData, renderedImage: imageData };
+            localStorage.setItem('pixelOfficeCurrentMap', JSON.stringify(payload));
+            this.showNotification('已应用为当前地图，返回主页即可查看');
+            setTimeout(() => { window.location.href = 'index.html'; }, 1200);
+        } catch (e) {
+            this.showNotification('保存失败：' + (e.message || '未知错误'));
+        }
+    }
+
+    getExportData() {
+        let drawLayerData = null;
+        if (this.drawLayer && this.drawLayer.width > 0 && this.drawLayer.height > 0) {
+            try { drawLayerData = this.drawLayer.toDataURL('image/png'); } catch (_) {}
+        }
+        return {
+            canvas: { width: CONFIG.CANVAS_WIDTH, height: CONFIG.CANVAS_HEIGHT, gridSize: CONFIG.GRID_SIZE },
+            drawLayer: drawLayerData,
+            elements: this.elements.map(el => ({
+                assetKey: el.assetKey || el.type,
+                id: el.id,
+                type: el.type,
+                name: el.name,
+                x: el.x,
+                y: el.y,
+                pixelBlocks: el.pixelBlocks,
+                width: el.width,
+                height: el.height,
+                properties: el.properties,
+                collisionBounds: el.collisionBounds
+            }))
+        };
     }
 
     async init() {
         this.bindEvents();
+        this.initDrawLayer();
         this.loadDefaultAssets();
+        this.loadTemplates();
+        setTimeout(() => this.loadCurrentMap(), 1200);
         this.startRenderLoop();
         this.updateCanvasInfo();
+        this.updateUndoRedoUI();
     }
 
     bindEvents() {
@@ -209,10 +537,17 @@ class MapEditor {
 
         this.canvas.addEventListener('drop', (e) => this.handleDrop(e));
         document.addEventListener('keydown', (e) => this.handleKeyDown(e));
+        document.addEventListener('keydown', (e) => {
+            if ((e.key === 'c' || e.key === 'C') && !this.isInputFocused()) this.cKeyHeld = true;
+        });
+        document.addEventListener('keyup', (e) => {
+            if (e.key === 'c' || e.key === 'C') this.cKeyHeld = false;
+        });
     }
 
     loadDefaultAssets() {
         const categories = {
+            floor: ['floorWood', 'floorTile', 'floorCarpet', 'floorMarble', 'floorConcrete', 'floorLinoleum'],
             furniture: ['desk', 'chair', 'monitor', 'meetingTable', 'receptionDesk', 'sofa'],
             people: ['personWorking', 'personStanding', 'receptionist', 'manager'],
             environment: ['glassWall', 'window', 'door', 'plant'],
@@ -220,6 +555,7 @@ class MapEditor {
         };
 
         const categoryNames = {
+            floor: '🟫 地板',
             furniture: '🪑 家具',
             people: '👥 人物',
             environment: '🏢 环境',
@@ -239,7 +575,11 @@ class MapEditor {
             container.appendChild(categoryDiv);
 
             const grid = categoryDiv.querySelector('.asset-grid');
-            items.forEach(item => this.loadAssetImage(item, cat, grid));
+            if (cat === 'floor') {
+                items.forEach(item => this.loadFloorAsset(item, grid));
+            } else {
+                items.forEach(item => this.loadAssetImage(item, cat, grid));
+            }
         });
         
         // 加载从点阵资产系统导出的资产
@@ -247,6 +587,55 @@ class MapEditor {
     }
     
     // 加载从点阵资产系统导出的资产
+    showAIGenerator() {
+        const d = document.getElementById('aiDialog');
+        if (d) { d.style.display = 'flex'; }
+    }
+
+    closeAIDialog() {
+        const d = document.getElementById('aiDialog');
+        if (d) { d.style.display = 'none'; }
+    }
+
+    addAIPattern(type) {
+        const size = 80;
+        const names = { house: '房子', desk: '办公桌', plant: '盆栽', animal: '小动物' };
+        const name = (names[type] || type) + '_' + Date.now().toString().slice(-6);
+        try {
+            const result = typeof AIGenerator !== 'undefined' && AIGenerator.generatePattern
+                ? AIGenerator.generatePattern(type, size, 16)
+                : null;
+            if (!result || !result.canvas) return;
+            const tc = document.createElement('canvas');
+            tc.width = result.canvas.width;
+            tc.height = result.canvas.height;
+            const tctx = tc.getContext('2d');
+            tctx.drawImage(result.canvas, 0, 0);
+            const id = tctx.getImageData(0, 0, tc.width, tc.height);
+            const d = id.data;
+            let minX = tc.width, minY = tc.height, maxX = 0, maxY = 0;
+            for (let y = 0; y < tc.height; y++)
+                for (let x = 0; x < tc.width; x++)
+                    if (d[(y * tc.width + x) * 4 + 3] > 10) {
+                        minX = Math.min(minX, x); minY = Math.min(minY, y);
+                        maxX = Math.max(maxX, x); maxY = Math.max(maxY, y);
+                    }
+            const tw = Math.max(1, maxX - minX + 1), th = Math.max(1, maxY - minY + 1);
+            const out = document.createElement('canvas');
+            out.width = tw; out.height = th;
+            const octx = out.getContext('2d');
+            octx.drawImage(result.canvas, minX, minY, tw, th, 0, 0, tw, th);
+            const dataUrl = out.toDataURL('image/png');
+            const assetData = { name, image: dataUrl, width: tw, height: th, gridCells: 4, pixelsPerCell: CONFIG.GRID_SIZE };
+            let list = JSON.parse(localStorage.getItem('mapEditorAssets') || '[]');
+            list.push(assetData);
+            if (list.length > 50) list = list.slice(-50);
+            localStorage.setItem('mapEditorAssets', JSON.stringify(list));
+            this.loadDotMatrixAssets();
+            this.closeAIDialog();
+        } catch (e) { console.warn('AI生成失败', e); }
+    }
+
     loadDotMatrixAssets() {
         try {
             const mapEditorAssets = JSON.parse(localStorage.getItem('mapEditorAssets') || '[]');
@@ -271,8 +660,9 @@ class MapEditor {
                     const img = new Image();
                     img.onload = () => {
                         const assetName = `dotmatrix_${assetData.name}`;
+                        this.getImageWithCropOverride(assetName, img, (finalImg) => {
                         this.assets.set(assetName, {
-                            image: img,
+                            image: finalImg,
                             originalImage: img,
                             category: 'dotmatrix',
                             name: assetData.name,
@@ -299,6 +689,7 @@ class MapEditor {
                         });
                         
                         dotMatrixContainer.appendChild(assetDiv);
+                        });
                     };
                     img.src = assetData.image;
                 });
@@ -306,6 +697,93 @@ class MapEditor {
         } catch (error) {
             console.error('加载点阵资产失败:', error);
         }
+    }
+
+    // 生成地板纹理 - 单格尺寸（GRID_SIZE x GRID_SIZE），以画布格子为单位平铺
+    createFloorTexture(type) {
+        const size = CONFIG.GRID_SIZE;
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+
+        const patterns = {
+            floorWood: () => {
+                const grad = ctx.createLinearGradient(0, 0, size, 0);
+                grad.addColorStop(0, '#8b6914');
+                grad.addColorStop(0.5, '#a67c00');
+                grad.addColorStop(1, '#6b5012');
+                ctx.fillStyle = grad;
+                ctx.fillRect(0, 0, size, size);
+                ctx.strokeStyle = 'rgba(0,0,0,0.1)';
+                ctx.lineWidth = 0.5;
+                ctx.strokeRect(0, 0, size, size);
+            },
+            floorTile: () => {
+                ctx.fillStyle = '#e8e4e0';
+                ctx.fillRect(0, 0, size, size);
+                ctx.strokeStyle = '#c0bcb8';
+                ctx.lineWidth = 1;
+                ctx.strokeRect(0, 0, size, size);
+            },
+            floorCarpet: () => {
+                const grad = ctx.createRadialGradient(size/2, size/2, 0, size/2, size/2, size/2);
+                grad.addColorStop(0, '#5a4a6a');
+                grad.addColorStop(1, '#4a3a5a');
+                ctx.fillStyle = grad;
+                ctx.fillRect(0, 0, size, size);
+            },
+            floorMarble: () => {
+                ctx.fillStyle = '#d4d0cc';
+                ctx.fillRect(0, 0, size, size);
+                ctx.fillStyle = 'rgba(180,175,170,0.3)';
+                ctx.fillRect(0, 0, size/2, size/2);
+                ctx.fillRect(size/2, size/2, size/2, size/2);
+            },
+            floorConcrete: () => {
+                ctx.fillStyle = '#9a9590';
+                ctx.fillRect(0, 0, size, size);
+                for (let i = 0; i < 5; i++) {
+                    ctx.fillStyle = `rgba(0,0,0,${0.03 + Math.random() * 0.04})`;
+                    ctx.fillRect(Math.random() * size, Math.random() * size, 2, 2);
+                }
+            },
+            floorLinoleum: () => {
+                ctx.fillStyle = '#2d4a3e';
+                ctx.fillRect(0, 0, size, size);
+                ctx.fillStyle = 'rgba(60,90,75,0.5)';
+                ctx.fillRect(0, 0, size/2, size/2);
+                ctx.fillRect(size/2, size/2, size/2, size/2);
+            }
+        };
+        const fn = patterns[type];
+        if (fn) fn();
+        return canvas.toDataURL('image/png');
+    }
+
+    loadFloorAsset(name, container) {
+        const names = {
+            floorWood: '木地板',
+            floorTile: '白瓷砖',
+            floorCarpet: '地毯',
+            floorMarble: '大理石',
+            floorConcrete: '水泥',
+            floorLinoleum: '复合地板'
+        };
+        const img = new Image();
+        img.onload = () => {
+            this.getImageWithCropOverride(name, img, (finalImg) => {
+                this.assets.set(name, {
+                    image: finalImg,
+                    originalImage: img,
+                    category: 'floor',
+                    name: names[name] || name,
+                    trimmed: false
+                });
+                this.createAssetElement(name, finalImg, container);
+            });
+        };
+        img.src = this.createFloorTexture(name);
     }
 
     loadAssetImage(name, category, container) {
@@ -339,28 +817,31 @@ class MapEditor {
         img.src = paths[name];
     }
 
-    // 创建裁剪后的图片（去除透明边框）
+    // 创建裁剪后的图片（去除透明边框，排除右下角水印区域）
     createTrimmedImage(originalImg, name, category, container) {
-        // 创建临时 canvas 来分析图片
         const tempCanvas = document.createElement('canvas');
         const tempCtx = tempCanvas.getContext('2d');
         tempCanvas.width = originalImg.width;
         tempCanvas.height = originalImg.height;
         tempCtx.drawImage(originalImg, 0, 0);
 
-        // 获取像素数据
         const imageData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
         const data = imageData.data;
+        const w = tempCanvas.width;
+        const h = tempCanvas.height;
 
-        // 找到非透明区域的边界
-        let minX = tempCanvas.width, minY = tempCanvas.height;
-        let maxX = 0, maxY = 0;
+        // 排除右下角水印区域（AI生成等文字通常在此处）
+        const watermarkRight = Math.floor(w * 0.18);
+        const watermarkBottom = Math.floor(h * 0.15);
+
+        let minX = w, minY = h, maxX = 0, maxY = 0;
         let hasVisiblePixel = false;
 
-        for (let y = 0; y < tempCanvas.height; y++) {
-            for (let x = 0; x < tempCanvas.width; x++) {
-                const alpha = data[(y * tempCanvas.width + x) * 4 + 3];
-                if (alpha > 10) { // 透明度阈值
+        for (let y = 0; y < h; y++) {
+            for (let x = 0; x < w; x++) {
+                const alpha = data[(y * w + x) * 4 + 3];
+                const inWatermarkZone = (x >= w - watermarkRight) || (y >= h - watermarkBottom);
+                if (alpha > 10 && !inWatermarkZone) {
                     hasVisiblePixel = true;
                     minX = Math.min(minX, x);
                     minY = Math.min(minY, y);
@@ -428,44 +909,115 @@ class MapEditor {
     handleDrop(e) {
         e.preventDefault();
         
-        const assetName = e.dataTransfer.getData('asset');
-        if (!assetName || !this.assets.has(assetName)) return;
-
         const rect = this.canvas.getBoundingClientRect();
         const x = e.clientX - rect.left;
         const y = e.clientY - rect.top;
 
+        const templateIndex = e.dataTransfer.getData('template-index');
+        if (templateIndex !== '') {
+            const idx = parseInt(templateIndex, 10);
+            if (!isNaN(idx) && this.templates[idx]) {
+                this.placeTemplateAt(idx, x, y);
+            }
+            return;
+        }
+
+        const assetName = e.dataTransfer.getData('asset');
+        if (!assetName || !this.assets.has(assetName)) return;
         const asset = this.assets.get(assetName);
-        this.createElement(asset, x, y);
+        this.createElement(asset, x, y, assetName);
     }
 
-    createElement(asset, x, y) {
-        // 使用默认像素块大小（4x4 = 80x80像素）
+    createElement(asset, x, y, assetKey) {
+        this.saveState();
+        const blocks = { w: CONFIG.DEFAULT_ELEMENT_WIDTH, h: CONFIG.DEFAULT_ELEMENT_HEIGHT };
         const element = new MapElement(
             this.nextId++,
             asset.category,
-            x - (CONFIG.DEFAULT_ELEMENT_WIDTH * CONFIG.GRID_SIZE) / 2,
-            y - (CONFIG.DEFAULT_ELEMENT_HEIGHT * CONFIG.GRID_SIZE) / 2,
+            x - (blocks.w * CONFIG.GRID_SIZE) / 2,
+            y - (blocks.h * CONFIG.GRID_SIZE) / 2,
             asset.image,
             asset.name,
-            { w: CONFIG.DEFAULT_ELEMENT_WIDTH, h: CONFIG.DEFAULT_ELEMENT_HEIGHT }
+            blocks
         );
-
+        if (assetKey) {
+            element.assetKey = assetKey;
+            if (String(assetKey).startsWith('floor')) element.properties.layer = 0;
+        }
         element.snapToGrid();
         this.elements.push(element);
         this.selectElement(element);
         this.updatePropertiesPanel();
     }
 
+    createElementFromPreset(data) {
+        const asset = this.assets.get(data.assetKey);
+        if (!asset) {
+            console.warn('Asset not found:', data.assetKey);
+            return;
+        }
+        const pixelBlocks = data.pixelBlocks || { w: CONFIG.DEFAULT_ELEMENT_WIDTH, h: CONFIG.DEFAULT_ELEMENT_HEIGHT };
+        const element = new MapElement(
+            this.nextId++,
+            asset.category,
+            data.x || 0,
+            data.y || 0,
+            asset.image,
+            data.name || asset.name,
+            pixelBlocks
+        );
+        if (data.properties) Object.assign(element.properties, data.properties);
+        if (data.assetKey && String(data.assetKey).startsWith('floor')) {
+            element.properties.layer = 0;
+        }
+        if (data.collisionBounds && data.collisionBounds.length > 0) {
+            element.collisionBounds = data.collisionBounds.map(row => [...row]);
+        }
+        element.assetKey = data.assetKey;
+        this.elements.push(element);
+    }
+
     handleMouseDown(e) {
         if (this.isResizingCanvas) return;
 
         const rect = this.canvas.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
+        const scaleX = this.canvas.width / rect.width;
+        const scaleY = this.canvas.height / rect.height;
+        const x = (e.clientX - rect.left) * scaleX;
+        const y = (e.clientY - rect.top) * scaleY;
 
-        // 碰撞编辑模式：在选中元素上点击切换碰撞格子
-        if (this.collisionEditMode && this.selectedElement) {
+        // 裁剪模式：拖拽 8 个控制点
+        if (this.cropMode && this.cropElement && this.cropRect) {
+            const handleIdx = this.getCropHandleAt(x, y);
+            if (handleIdx >= 0) {
+                this.cropDragState = { active: true, handle: handleIdx, initX: x, initY: y, startRect: { x: this.cropRect.x, y: this.cropRect.y, w: this.cropRect.w, h: this.cropRect.h } };
+                return;
+            }
+            return;
+        }
+
+        // 在选中元素的尺寸手柄上按下：开始调整尺寸
+        const handleIdx = this.getResizeHandleAt(x, y);
+        if (handleIdx >= 0) {
+            this.saveState();
+            const el = this.selectedElement;
+            this.resizeState = {
+                isResizing: true,
+                element: el,
+                handle: handleIdx,
+                startX: x,
+                startY: y,
+                startElX: el.x,
+                startElY: el.y,
+                startW: el.width,
+                startH: el.height
+            };
+            return;
+        }
+
+        // 按住 Ctrl 或碰撞编辑模式：在选中元素上点击/拖动切换碰撞格子
+        const ctrlCollisionEdit = e.ctrlKey && this.selectedElement;
+        if ((this.collisionEditMode || ctrlCollisionEdit) && this.selectedElement) {
             const el = this.selectedElement;
             const bounds = el.getBounds();
             if (x >= bounds.x && x < bounds.x + bounds.width &&
@@ -477,16 +1029,47 @@ class MapEditor {
                 const col = Math.floor(localX / cellW);
                 const row = Math.floor(localY / cellH);
                 if (row >= 0 && row < el.pixelBlocks.h && col >= 0 && col < el.pixelBlocks.w) {
-                    el.collisionBounds[row][col] = !el.collisionBounds[row][col];
+                    this.saveState();
+                    const setValue = !el.collisionBounds[row][col];
+                    el.collisionBounds[row][col] = setValue;
+                    this.collisionDrawState = { active: true, startRow: row, startCol: col, lastRow: row, lastCol: col, setValue };
                     this.updatePropertiesPanel();
                 }
             }
             return;
         }
 
-        if (this.currentTool === 'erase') {
+        // 点击选中框上的锁定按钮
+        const lockHit = this.getLockButtonHit(x, y);
+        if (lockHit) {
+            this.selectedElement.properties.locked = !this.selectedElement.properties.locked;
+            this.updatePropertiesPanel();
+            return;
+        }
+
+        if (this.currentTool === 'erase' || this.cKeyHeld) {
             const element = this.getElementAt(x, y);
-            if (element) this.deleteElement(element);
+            if (element) {
+                this.deleteElement(element);
+                return;
+            }
+        }
+
+        // 像素绘制工具：格子笔、格子橡皮、取色、填充
+        const pixelTools = ['grid', 'gridEraser', 'picker', 'fill'];
+        if (pixelTools.includes(this.currentTool)) {
+            if (this.currentTool === 'fill') {
+                this.saveState();
+                this.handlePixelDraw(x, y);
+            } else if (this.currentTool === 'picker') {
+                this.handlePixelDraw(x, y);
+            } else {
+                if (!this.isPixelDrawing) this.saveState();
+                this.isPixelDrawing = true;
+                this.lastPixelCell = null;
+                this.handlePixelDraw(x, y);
+                this.lastPixelCell = [Math.floor(x / CONFIG.GRID_SIZE), Math.floor(y / CONFIG.GRID_SIZE)];
+            }
             return;
         }
 
@@ -495,7 +1078,8 @@ class MapEditor {
         if (element) {
             this.selectElement(element);
             
-            if (!this.collisionEditMode && (this.currentTool === 'move' || this.currentTool === 'select')) {
+            if (!this.collisionEditMode && !e.ctrlKey && (this.currentTool === 'move' || this.currentTool === 'select') && !element.properties.locked) {
+                this.saveState();
                 this.dragState = {
                     isDragging: true,
                     element: element,
@@ -516,34 +1100,201 @@ class MapEditor {
 
     handleMouseMove(e) {
         const rect = this.canvas.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
+        const scaleX = this.canvas.width / rect.width;
+        const scaleY = this.canvas.height / rect.height;
+        const x = (e.clientX - rect.left) * scaleX;
+        const y = (e.clientY - rect.top) * scaleY;
+
+        // 裁剪模式拖拽
+        if (this.cropMode && this.cropDragState.active && this.cropElement) {
+            const st = this.cropDragState;
+            const el = this.cropElement;
+            const { width: ew, height: eh } = el.getBounds();
+            const dx = x - st.initX;
+            const dy = y - st.initY;
+            const r0 = st.startRect;
+            const minSize = 20;
+            let rx = r0.x, ry = r0.y, rw = r0.w, rh = r0.h;
+            if (st.handle === 0) {
+                rx = Math.min(r0.x + r0.w - minSize, r0.x + dx);
+                ry = Math.min(r0.y + r0.h - minSize, r0.y + dy);
+                rx = Math.max(0, rx);
+                ry = Math.max(0, ry);
+                rw = r0.w + (r0.x - rx);
+                rh = r0.h + (r0.y - ry);
+            } else if (st.handle === 1) {
+                ry = Math.min(r0.y + r0.h - minSize, Math.max(0, r0.y + dy));
+                rw = Math.max(minSize, Math.min(ew - r0.x, r0.w + dx));
+                rh = r0.h + (r0.y - ry);
+            } else if (st.handle === 2) {
+                rw = Math.max(minSize, Math.min(ew - r0.x, r0.w + dx));
+                rh = Math.max(minSize, Math.min(eh - r0.y, r0.h + dy));
+            } else if (st.handle === 3) {
+                rx = Math.min(r0.x + r0.w - minSize, Math.max(0, r0.x + dx));
+                rw = r0.w + (r0.x - rx);
+                rh = Math.max(minSize, Math.min(eh - r0.y, r0.h + dy));
+            } else if (st.handle === 4) {
+                ry = Math.min(r0.y + r0.h - minSize, Math.max(0, r0.y + dy));
+                rh = r0.h + (r0.y - ry);
+            } else if (st.handle === 5) {
+                rw = Math.max(minSize, Math.min(ew - r0.x, r0.w + dx));
+            } else if (st.handle === 6) {
+                rh = Math.max(minSize, Math.min(eh - r0.y, r0.h + dy));
+            } else if (st.handle === 7) {
+                rx = Math.min(r0.x + r0.w - minSize, Math.max(0, r0.x + dx));
+                rw = r0.w + (r0.x - rx);
+            }
+            if (rw >= minSize && rh >= minSize && rx >= 0 && ry >= 0 && rx + rw <= ew && ry + rh <= eh) {
+                this.cropRect = { x: rx, y: ry, w: rw, h: rh };
+            }
+            return;
+        }
 
         const gridX = Math.floor(x / CONFIG.GRID_SIZE);
         const gridY = Math.floor(y / CONFIG.GRID_SIZE);
         document.getElementById('canvasInfo').textContent = 
             `${Math.floor(x)}, ${Math.floor(y)} px | 网格: ${gridX}, ${gridY} | 画布: ${CONFIG.CANVAS_WIDTH}x${CONFIG.CANVAS_HEIGHT}`;
 
-        if (this.dragState.isDragging && this.dragState.element) {
+        if (this.resizeState.isResizing && this.resizeState.element) {
+            const rs = this.resizeState;
+            const el = rs.element;
+            const ar = rs.startElX + rs.startW;
+            const ab = rs.startElY + rs.startH;
+            const minSize = CONFIG.GRID_SIZE;
+            let newX = rs.startElX, newY = rs.startElY, newW = rs.startW, newH = rs.startH;
+            if (rs.handle === 0) {
+                newX = Math.min(x, ar - minSize);
+                newY = Math.min(y, ab - minSize);
+                newW = ar - newX;
+                newH = ab - newY;
+            } else if (rs.handle === 1) {
+                newY = Math.min(y, ab - minSize);
+                newW = Math.max(minSize, x - rs.startElX);
+                newH = ab - newY;
+            } else if (rs.handle === 2) {
+                newX = Math.min(x, ar - minSize);
+                newW = ar - newX;
+                newH = Math.max(minSize, y - rs.startElY);
+            } else {
+                newW = Math.max(minSize, x - rs.startElX);
+                newH = Math.max(minSize, y - rs.startElY);
+            }
+            const bw = Math.max(1, Math.round(newW / CONFIG.GRID_SIZE));
+            const bh = Math.max(1, Math.round(newH / CONFIG.GRID_SIZE));
+            el.x = Math.round(newX / CONFIG.GRID_SIZE) * CONFIG.GRID_SIZE;
+            el.y = Math.round(newY / CONFIG.GRID_SIZE) * CONFIG.GRID_SIZE;
+            el.updatePixelBlocks(bw, bh);
+            this.updatePropertiesPanel();
+        } else if (this.dragState.isDragging && this.dragState.element) {
             const element = this.dragState.element;
             element.x = x - this.dragState.offsetX;
             element.y = y - this.dragState.offsetY;
             this.updateCoordinateInputs();
+        } else if (this.isPixelDrawing && (this.currentTool === 'grid' || this.currentTool === 'gridEraser')) {
+            const cx = Math.floor(x / CONFIG.GRID_SIZE);
+            const cy = Math.floor(y / CONFIG.GRID_SIZE);
+            if (!this.lastPixelCell || this.lastPixelCell[0] !== cx || this.lastPixelCell[1] !== cy) {
+                this.handlePixelDraw(x, y);
+                this.lastPixelCell = [cx, cy];
+            }
+        } else if (this.collisionDrawState.active && this.selectedElement) {
+            const el = this.selectedElement;
+            const bounds = el.getBounds();
+            if (x >= bounds.x && x < bounds.x + bounds.width && y >= bounds.y && y < bounds.y + bounds.height) {
+                const localX = x - el.x;
+                const localY = y - el.y;
+                const cellW = el.width / el.pixelBlocks.w;
+                const cellH = el.height / el.pixelBlocks.h;
+                const col = Math.floor(localX / cellW);
+                const row = Math.floor(localY / cellH);
+                const maxR = el.pixelBlocks.h - 1;
+                const maxC = el.pixelBlocks.w - 1;
+                if (row >= 0 && row <= maxR && col >= 0 && col <= maxC) {
+                    const st = this.collisionDrawState;
+                    if (e.shiftKey) {
+                        const dr = Math.abs(row - st.startRow);
+                        const dc = Math.abs(col - st.startCol);
+                        if (dc >= dr) {
+                            const c0 = Math.min(st.startCol, col);
+                            const c1 = Math.max(st.startCol, col);
+                            for (let c = c0; c <= c1; c++) el.collisionBounds[st.startRow][c] = st.setValue;
+                        } else {
+                            const r0 = Math.min(st.startRow, row);
+                            const r1 = Math.max(st.startRow, row);
+                            for (let r = r0; r <= r1; r++) el.collisionBounds[r][st.startCol] = st.setValue;
+                        }
+                    } else {
+                        if (row !== st.lastRow || col !== st.lastCol) {
+                            el.collisionBounds[row][col] = st.setValue;
+                            st.lastRow = row;
+                            st.lastCol = col;
+                        }
+                    }
+                    this.updatePropertiesPanel();
+                }
+            }
         }
 
+        const cropHandle = this.cropMode ? this.getCropHandleAt(x, y) : -1;
+        const hoverHandle = this.getResizeHandleAt(x, y);
+        const hoverLock = this.getLockButtonHit(x, y);
         const hoverElement = this.getElementAt(x, y);
-        if (this.collisionEditMode && this.selectedElement) {
-            this.canvas.style.cursor = 'cell';
-        } else if (this.currentTool === 'erase') {
+        if (cropHandle >= 0) {
+            const cropCursors = ['nwse-resize', 'nesw-resize', 'nwse-resize', 'nesw-resize', 'ns-resize', 'ew-resize', 'ns-resize', 'ew-resize'];
+            this.canvas.style.cursor = cropCursors[cropHandle];
+        } else if (this.cropMode) {
+            this.canvas.style.cursor = 'default';
+        } else if (hoverLock) {
+            this.canvas.style.cursor = 'pointer';
+        } else if (hoverHandle >= 0) {
+            const cursors = ['nwse-resize', 'nesw-resize', 'nesw-resize', 'nwse-resize'];
+            this.canvas.style.cursor = cursors[hoverHandle];
+        } else if ((this.collisionEditMode || e.ctrlKey) && this.selectedElement) {
+            const bounds = this.selectedElement.getBounds();
+            const inBounds = x >= bounds.x && x < bounds.x + bounds.width && y >= bounds.y && y < bounds.y + bounds.height;
+            this.canvas.style.cursor = inBounds ? 'cell' : 'default';
+        } else if (this.currentTool === 'erase' || this.cKeyHeld) {
             this.canvas.style.cursor = hoverElement ? 'not-allowed' : 'default';
+        } else if (this.currentTool === 'grid') {
+            this.canvas.style.cursor = 'crosshair';
+        } else if (this.currentTool === 'gridEraser') {
+            this.canvas.style.cursor = 'cell';
+        } else if (this.currentTool === 'picker') {
+            this.canvas.style.cursor = 'crosshair';
+        } else if (this.currentTool === 'fill') {
+            this.canvas.style.cursor = 'crosshair';
         } else if (hoverElement) {
-            this.canvas.style.cursor = this.currentTool === 'move' ? 'move' : 'pointer';
+            this.canvas.style.cursor = (hoverElement.properties.locked && this.currentTool === 'move') ? 'not-allowed' : (this.currentTool === 'move' ? 'move' : 'pointer');
         } else {
             this.canvas.style.cursor = 'default';
         }
     }
 
     handleMouseUp() {
+        this.isPixelDrawing = false;
+        this.lastPixelCell = null;
+        this.collisionDrawState.active = false;
+
+        if (this.cropDragState.active) {
+            this.cropDragState = { active: false, handle: -1 };
+            return;
+        }
+
+        if (this.resizeState.isResizing && this.resizeState.element) {
+            this.resizeState.element.snapToGrid();
+            this.resizeState = {
+                isResizing: false,
+                element: null,
+                handle: 0,
+                startX: 0,
+                startY: 0,
+                startElX: 0,
+                startElY: 0,
+                startW: 0,
+                startH: 0
+            };
+            this.updatePropertiesPanel();
+        }
         if (this.dragState.isDragging && this.dragState.element) {
             this.dragState.element.snapToGrid();
             this.dragState.element.dragging = false;
@@ -559,20 +1310,302 @@ class MapEditor {
         }
     }
 
+    // ==================== 裁剪（WPS 风格） ====================
+    startCropMode() {
+        if (!this.selectedElement) {
+            this.showNotification('请先选择一个元素');
+            return;
+        }
+        const el = this.selectedElement;
+        const isFloor = el.type === 'floor' || (el.assetKey && String(el.assetKey).startsWith('floor'));
+        if (isFloor) {
+            this.showNotification('地板元素不支持裁剪');
+            return;
+        }
+        this.cropMode = true;
+        this.cropElement = el;
+        this.cropRect = { x: 0, y: 0, w: el.width, h: el.height };
+        this.cropDragState = { active: false, handle: -1, startX: 0, startY: 0, startRect: null };
+        const ov = document.getElementById('cropOverlay');
+        if (ov) ov.style.display = 'block';
+        const hint = document.getElementById('cropHint');
+        if (hint) hint.style.display = 'block';
+        const confirmBtn = document.getElementById('cropConfirmBtn');
+        if (confirmBtn) confirmBtn.style.display = 'block';
+        this.showNotification('拖拽 8 个控制点调整裁剪范围');
+    }
+
+    cancelCrop() {
+        this.cropMode = false;
+        this.cropElement = null;
+        this.cropRect = null;
+        this.cropDragState = { active: false, handle: -1 };
+        const ov = document.getElementById('cropOverlay');
+        if (ov) ov.style.display = 'none';
+        const hint = document.getElementById('cropHint');
+        if (hint) hint.style.display = 'none';
+        const confirmBtn = document.getElementById('cropConfirmBtn');
+        if (confirmBtn) confirmBtn.style.display = 'none';
+        document.getElementById('cropConfirmDialog').style.display = 'none';
+    }
+
+    getCropHandleAt(canvasX, canvasY) {
+        if (!this.cropElement || !this.cropRect) return -1;
+        const el = this.cropElement;
+        const { x: ex, y: ey } = el.getBounds();
+        const r = this.cropRect;
+        const handleSize = 12;
+        const handles = [
+            [ex + r.x, ey + r.y],
+            [ex + r.x + r.w, ey + r.y],
+            [ex + r.x + r.w, ey + r.y + r.h],
+            [ex + r.x, ey + r.y + r.h],
+            [ex + r.x + r.w / 2, ey + r.y],
+            [ex + r.x + r.w, ey + r.y + r.h / 2],
+            [ex + r.x + r.w / 2, ey + r.y + r.h],
+            [ex + r.x, ey + r.y + r.h / 2]
+        ];
+        for (let i = 0; i < handles.length; i++) {
+            const [hx, hy] = handles[i];
+            if (Math.abs(canvasX - hx) <= handleSize && Math.abs(canvasY - hy) <= handleSize) return i;
+        }
+        return -1;
+    }
+
+    renderCropOverlay() {
+        const overlay = document.getElementById('cropOverlay');
+        if (!overlay || !this.cropMode || !this.cropElement || !this.cropRect) return;
+        const canvas = this.canvas;
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+        overlay.width = canvas.width;
+        overlay.height = canvas.height;
+        overlay.style.width = rect.width + 'px';
+        overlay.style.height = rect.height + 'px';
+
+        const ctx = overlay.getContext('2d');
+        ctx.clearRect(0, 0, overlay.width, overlay.height);
+
+        const el = this.cropElement;
+        const { x: ex, y: ey, width: ew, height: eh } = el.getBounds();
+        const r = this.cropRect;
+        const cx = ex + r.x;
+        const cy = ey + r.y;
+        const cw = r.w;
+        const ch = r.h;
+
+        // 被裁区域变暗
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+        ctx.fillRect(0, 0, overlay.width, overlay.height);
+        ctx.clearRect(cx, cy, cw, ch);
+
+        // 蓝色虚线框
+        ctx.strokeStyle = '#42a5f5';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([8, 4]);
+        ctx.strokeRect(cx, cy, cw, ch);
+        ctx.setLineDash([]);
+
+        // 8 个控制点
+        const handles = [
+            [cx, cy], [cx + cw, cy], [cx + cw, cy + ch], [cx, cy + ch],
+            [cx + cw / 2, cy], [cx + cw, cy + ch / 2], [cx + cw / 2, cy + ch], [cx, cy + ch / 2]
+        ];
+        ctx.fillStyle = '#42a5f5';
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2;
+        handles.forEach(([hx, hy]) => {
+            ctx.beginPath();
+            ctx.arc(hx, hy, 6, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+        });
+    }
+
+    saveCropOverride(assetKey, dataUrl) {
+        try {
+            const overrides = JSON.parse(localStorage.getItem('mapEditorCropOverrides') || '{}');
+            overrides[assetKey] = dataUrl;
+            localStorage.setItem('mapEditorCropOverrides', JSON.stringify(overrides));
+        } catch (e) { console.warn('保存裁剪覆盖失败', e); }
+    }
+
+    getImageWithCropOverride(assetKey, defaultImg, callback) {
+        try {
+            const overrides = JSON.parse(localStorage.getItem('mapEditorCropOverrides') || '{}');
+            const dataUrl = overrides[assetKey];
+            if (dataUrl) {
+                const img = new Image();
+                img.onload = () => callback(img);
+                img.onerror = () => callback(defaultImg);
+                img.src = dataUrl;
+                return;
+            }
+        } catch (_) {}
+        callback(defaultImg);
+    }
+
+    applyCropFromRect(overwrite) {
+        if (!this.cropElement || !this.cropRect) return;
+        const el = this.cropElement;
+        const r = this.cropRect;
+        if (r.w < 4 || r.h < 4) {
+            this.showNotification('裁剪区域过小');
+            return;
+        }
+
+        const img = el.image;
+        if (!img || !img.complete) return;
+
+        // 将裁剪区域从元素显示坐标映射到图片像素坐标
+        const sx = (r.x / el.width) * img.naturalWidth;
+        const sy = (r.y / el.height) * img.naturalHeight;
+        const sw = (r.w / el.width) * img.naturalWidth;
+        const sh = (r.h / el.height) * img.naturalHeight;
+
+        const temp = document.createElement('canvas');
+        temp.width = Math.max(1, Math.floor(sw));
+        temp.height = Math.max(1, Math.floor(sh));
+        const tctx = temp.getContext('2d');
+        tctx.drawImage(img, sx, sy, sw, sh, 0, 0, temp.width, temp.height);
+
+        const dataUrl = temp.toDataURL('image/png');
+        const newImg = new Image();
+        newImg.onload = () => {
+            this.saveState();
+            const newW = Math.max(1, Math.round(r.w / CONFIG.GRID_SIZE));
+            const newH = Math.max(1, Math.round(r.h / CONFIG.GRID_SIZE));
+            el.image = newImg;
+            el.updatePixelBlocks(newW, newH);
+            if (overwrite) {
+                if (el.assetKey && this.assets.has(el.assetKey)) {
+                    this.assets.set(el.assetKey, { ...this.assets.get(el.assetKey), image: newImg });
+                }
+                this.saveCropOverride(el.assetKey || el.name, dataUrl);
+                this.showNotification('裁剪完成，已覆盖原图');
+            } else {
+                const name = (el.name || '裁剪') + '_' + Date.now().toString().slice(-6);
+                this.assets.set(name, { image: newImg, category: el.type, name });
+                try {
+                    const list = JSON.parse(localStorage.getItem('mapEditorAssets') || '[]');
+                    list.push({ name, image: dataUrl, width: newImg.width, height: newImg.height, gridCells: 4, pixelsPerCell: CONFIG.GRID_SIZE });
+                    if (list.length > 50) list = list.slice(-50);
+                    localStorage.setItem('mapEditorAssets', JSON.stringify(list));
+                } catch (_) {}
+                this.createAssetElement(name, newImg, document.getElementById('category-custom') || document.getElementById('assetCategories'));
+                this.showNotification('裁剪完成，已另存到元素库');
+            }
+            this.cancelCrop();
+            this.updatePropertiesPanel();
+        };
+        newImg.src = dataUrl;
+    }
+
+    confirmCrop() {
+        document.getElementById('cropConfirmDialog').style.display = 'flex';
+    }
+
+    applyCrop(overwrite) {
+        this.applyCropFromRect(overwrite);
+        document.getElementById('cropConfirmDialog').style.display = 'none';
+    }
+
     handleKeyDown(e) {
+        if (this.isInputFocused()) return;
+        if (e.ctrlKey && e.key === 'z') {
+            e.preventDefault();
+            e.shiftKey ? this.redo() : this.undo();
+            return;
+        }
+        if (e.ctrlKey && e.key === 'y') {
+            e.preventDefault();
+            this.redo();
+            return;
+        }
+        if (e.key === 'Escape' && this.cropMode) {
+            e.preventDefault();
+            this.cancelCrop();
+            return;
+        }
+        if (e.key === 'Enter' && this.cropMode && this.cropElement) {
+            e.preventDefault();
+            this.confirmCrop();
+            return;
+        }
         if (e.key === 'Delete' && this.selectedElement) {
             this.deleteElement(this.selectedElement);
         }
+        if (this.selectedElement && !this.selectedElement.assetKey?.startsWith?.('floor')) {
+            if (e.key === 'h' || e.key === 'H') {
+                e.preventDefault();
+                this.saveState();
+                this.updateProperty('flipH', !this.selectedElement.properties.flipH);
+                this.showNotification('水平翻转 H');
+            } else if (e.key === 'v' || e.key === 'V') {
+                e.preventDefault();
+                this.saveState();
+                this.updateProperty('flipV', !this.selectedElement.properties.flipV);
+                this.showNotification('垂直翻转 V');
+            }
+        }
     }
 
-    // 点击选择使用元素完整边界，不依赖碰撞区域（碰撞仅用于元素间碰撞检测）
+    isInputFocused() {
+        const el = document.activeElement;
+        return el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
+    }
+
+    getLockButtonHit(x, y) {
+        if (!this.selectedElement) return false;
+        const el = this.selectedElement;
+        const { x: ex, y: ey, width: w } = el.getBounds();
+        const padding = 4;
+        const btnSize = 20;
+        const lx = ex + w + padding - btnSize;
+        const ly = ey - padding - btnSize - 4;
+        return x >= lx && x <= lx + btnSize && y >= ly && y <= ly + btnSize;
+    }
+
+    getResizeHandleAt(x, y) {
+        if (!this.selectedElement) return -1;
+        const el = this.selectedElement;
+        const { x: ex, y: ey, width: w, height: h } = el.getBounds();
+        const padding = 4;
+        const handleSize = 6;
+        const hitSize = 14;
+        const handles = [
+            [ex - padding - handleSize/2, ey - padding - handleSize/2],
+            [ex + w + padding - handleSize/2, ey - padding - handleSize/2],
+            [ex - padding - handleSize/2, ey + h + padding - handleSize/2],
+            [ex + w + padding - handleSize/2, ey + h + padding - handleSize/2]
+        ];
+        const half = hitSize / 2;
+        for (let i = 0; i < handles.length; i++) {
+            const [hx, hy] = handles[i];
+            const cx = hx + handleSize/2;
+            const cy = hy + handleSize/2;
+            if (x >= cx - half && x <= cx + half && y >= cy - half && y <= cy + half) return i;
+        }
+        return -1;
+    }
+
+    // 点击选择：按渲染层级（layer 高优先），同层按后添加优先，地板最后
     getElementAt(x, y) {
-        for (let i = this.elements.length - 1; i >= 0; i--) {
-            const element = this.elements[i];
-            const bounds = element.getBounds();
+        const isFloor = (el) => el.type === 'floor' || (el.assetKey && String(el.assetKey).startsWith('floor'));
+        const sorted = [...this.elements]
+            .map((el, idx) => ({ el, idx }))
+            .sort((a, b) => {
+                const layerA = a.el.properties.layer ?? 1;
+                const layerB = b.el.properties.layer ?? 1;
+                if (layerB !== layerA) return layerB - layerA;
+                return b.idx - a.idx;
+            });
+        for (const { el } of sorted) {
+            const bounds = el.getBounds();
             if (x >= bounds.x && x < bounds.x + bounds.width &&
                 y >= bounds.y && y < bounds.y + bounds.height) {
-                return element;
+                return el;
             }
         }
         return null;
@@ -589,6 +1622,7 @@ class MapEditor {
     deleteElement(element) {
         const index = this.elements.indexOf(element);
         if (index > -1) {
+            this.saveState();
             this.elements.splice(index, 1);
             if (this.selectedElement === element) {
                 this.selectedElement = null;
@@ -607,6 +1641,94 @@ class MapEditor {
         requestAnimationFrame(loop);
     }
 
+    // ==================== 像素绘制（格子笔、格子橡皮、取色、填充） ====================
+    drawGridCell(x, y) {
+        if (!this.drawLayerCtx) return;
+        const gs = CONFIG.GRID_SIZE;
+        const gx = Math.floor(x / gs) * gs;
+        const gy = Math.floor(y / gs) * gs;
+        const color = this.palette[this.selectedColor] || [0, 0, 0];
+        this.drawLayerCtx.fillStyle = `rgb(${color[0]}, ${color[1]}, ${color[2]})`;
+        this.drawLayerCtx.fillRect(gx, gy, gs, gs);
+    }
+
+    eraseGridCell(x, y) {
+        if (!this.drawLayerCtx) return;
+        const gs = CONFIG.GRID_SIZE;
+        const gx = Math.floor(x / gs) * gs;
+        const gy = Math.floor(y / gs) * gs;
+        const imgData = this.drawLayerCtx.getImageData(gx, gy, gs, gs);
+        for (let i = 3; i < imgData.data.length; i += 4) imgData.data[i] = 0;
+        this.drawLayerCtx.putImageData(imgData, gx, gy);
+    }
+
+    floodFill(startX, startY) {
+        if (!this.drawLayerCtx) return;
+        const w = this.drawLayer.width;
+        const h = this.drawLayer.height;
+        const imgData = this.drawLayerCtx.getImageData(0, 0, w, h);
+        const data = imgData.data;
+        const idx = (startY * w + startX) * 4;
+        const startR = data[idx], startG = data[idx + 1], startB = data[idx + 2], startA = data[idx + 3];
+        const color = this.palette[this.selectedColor] || [0, 0, 0];
+        const fillR = color[0], fillG = color[1], fillB = color[2];
+        const same = (i) => data[i] === startR && data[i + 1] === startG && data[i + 2] === startB && data[i + 3] === startA;
+        const stack = [[startX, startY]];
+        let count = 0;
+        const maxFill = w * h;
+        while (stack.length > 0 && count < maxFill) {
+            const [px, py] = stack.pop();
+            if (px < 0 || px >= w || py < 0 || py >= h) continue;
+            const i = (py * w + px) * 4;
+            if (!same(i)) continue;
+            data[i] = fillR; data[i + 1] = fillG; data[i + 2] = fillB; data[i + 3] = 255;
+            count++;
+            stack.push([px + 1, py], [px - 1, py], [px, py + 1], [px, py - 1]);
+        }
+        this.drawLayerCtx.putImageData(imgData, 0, 0);
+        this.showNotification(`填充了 ${count} 个像素`);
+    }
+
+    pickColor(x, y) {
+        if (!this.drawLayerCtx) return;
+        const w = this.drawLayer.width;
+        const h = this.drawLayer.height;
+        const imgData = this.drawLayerCtx.getImageData(0, 0, w, h);
+        const data = imgData.data;
+        const px = Math.max(0, Math.min(Math.floor(x), w - 1));
+        const py = Math.max(0, Math.min(Math.floor(y), h - 1));
+        const i = (py * w + px) * 4;
+        const r = data[i], g = data[i + 1], b = data[i + 2], a = data[i + 3];
+        if (a < 10) {
+            this.showNotification('该位置无颜色，尝试从画布背景取色');
+            return;
+        }
+        let closest = 0;
+        let minDist = Infinity;
+        this.palette.forEach((c, idx) => {
+            const dr = r - c[0], dg = g - c[1], db = b - c[2];
+            const dist = dr * dr + dg * dg + db * db;
+            if (dist < minDist) { minDist = dist; closest = idx; }
+        });
+        this.selectColor(closest);
+        this.showNotification(`已取色 #${((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1)}`);
+        this.setTool('grid');
+    }
+
+    handlePixelDraw(x, y) {
+        const pixelTools = ['grid', 'gridEraser', 'picker', 'fill'];
+        if (!pixelTools.includes(this.currentTool)) return;
+        if (this.currentTool === 'grid') {
+            this.drawGridCell(x, y);
+        } else if (this.currentTool === 'gridEraser') {
+            this.eraseGridCell(x, y);
+        } else if (this.currentTool === 'picker') {
+            this.pickColor(x, y);
+        } else if (this.currentTool === 'fill') {
+            this.floodFill(x, y);
+        }
+    }
+
     render() {
         // 清空画布
         this.ctx.fillStyle = '#2d2d44';
@@ -615,6 +1737,11 @@ class MapEditor {
         // 渲染网格
         if (this.showGrid) {
             this.renderGrid();
+        }
+
+        // 渲染绘制层（格子笔等）
+        if (this.drawLayer) {
+            this.ctx.drawImage(this.drawLayer, 0, 0);
         }
 
         // 按层级排序并渲染元素
@@ -627,6 +1754,11 @@ class MapEditor {
         // 渲染选中效果
         if (this.selectedElement) {
             this.renderSelection(this.selectedElement);
+        }
+
+        // 裁剪模式叠加层
+        if (this.cropMode) {
+            this.renderCropOverlay();
         }
     }
 
@@ -670,35 +1802,54 @@ class MapEditor {
 
     renderElement(element) {
         const { x, y, width, height, image, properties } = element;
+        const isFloor = element.type === 'floor' || (element.assetKey && String(element.assetKey).startsWith('floor'));
 
         this.ctx.save();
         this.ctx.globalAlpha = properties.opacity;
 
-        // 旋转
-        if (properties.rotation !== 0) {
+        // 旋转、缩放、镜像（地板跳过）
+        if (!isFloor && properties.rotation !== 0) {
             this.ctx.translate(x + width / 2, y + height / 2);
             this.ctx.rotate(properties.rotation * Math.PI / 180);
             this.ctx.translate(-(x + width / 2), -(y + height / 2));
         }
 
         // 缩放
-        if (properties.scale !== 1) {
+        if (!isFloor && properties.scale !== 1) {
             const scale = properties.scale;
             this.ctx.translate(x + width / 2, y + height / 2);
             this.ctx.scale(scale, scale);
             this.ctx.translate(-(x + width / 2), -(y + height / 2));
         }
 
-        // 绘制图片（裁剪后的，无透明边框）
+        // 镜像
+        if (!isFloor && (properties.flipH || properties.flipV)) {
+            const sx = properties.flipH ? -1 : 1;
+            const sy = properties.flipV ? -1 : 1;
+            this.ctx.translate(x + width / 2, y + height / 2);
+            this.ctx.scale(sx, sy);
+            this.ctx.translate(-(x + width / 2), -(y + height / 2));
+        }
+
+        // 地板：按格子平铺纹理（尺寸=格子数×格子大小），非地板：单图拉伸
         if (image && image.complete) {
-            this.ctx.drawImage(image, x, y, width, height);
+            if (isFloor) {
+                const gs = CONFIG.GRID_SIZE;
+                for (let row = 0; row < element.pixelBlocks.h; row++) {
+                    for (let col = 0; col < element.pixelBlocks.w; col++) {
+                        this.ctx.drawImage(image, x + col * gs, y + row * gs, gs, gs);
+                    }
+                }
+            } else {
+                this.ctx.drawImage(image, x, y, width, height);
+            }
         } else {
             this.ctx.fillStyle = '#555';
             this.ctx.fillRect(x, y, width, height);
         }
 
-        // 绘制碰撞边界（选中时显示，碰撞仅用于元素间碰撞检测）
-        if (element.selected) {
+        // 绘制碰撞边界（仅当勾选固体/碰撞时显示）
+        if (element.selected && element.properties.solid) {
             this.renderCollisionBounds(element);
         }
 
@@ -793,6 +1944,33 @@ class MapEditor {
         handles.forEach(handle => {
             this.ctx.fillRect(handle.x, handle.y, handleSize, handleSize);
         });
+
+        // 锁定按钮
+        const btnSize = 20;
+        const lockX = x + width + padding - btnSize;
+        const lockY = y - padding - btnSize - 4;
+        this.ctx.fillStyle = element.properties.locked ? 'rgba(233, 69, 96, 0.9)' : 'rgba(233, 69, 96, 0.5)';
+        this.ctx.fillRect(lockX, lockY, btnSize, btnSize);
+        this.ctx.strokeStyle = '#e94560';
+        this.ctx.lineWidth = 1;
+        this.ctx.strokeRect(lockX, lockY, btnSize, btnSize);
+        this.ctx.fillStyle = '#fff';
+        const cx = lockX + btnSize/2;
+        const cy = lockY + btnSize/2;
+        if (element.properties.locked) {
+            this.ctx.fillRect(cx - 4, cy - 1, 8, 7);
+            this.ctx.strokeStyle = '#fff';
+            this.ctx.lineWidth = 1.5;
+            this.ctx.beginPath();
+            this.ctx.arc(cx, cy - 4, 5, Math.PI * 0.55, Math.PI * 1.45);
+            this.ctx.stroke();
+        } else {
+            this.ctx.strokeStyle = '#fff';
+            this.ctx.strokeRect(cx - 4, cy - 1, 8, 7);
+            this.ctx.beginPath();
+            this.ctx.arc(cx, cy - 5, 5, Math.PI * 0.55, Math.PI * 1.45);
+            this.ctx.stroke();
+        }
 
         // 尺寸标签
         this.ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
@@ -891,6 +2069,13 @@ class MapEditor {
             <div class="property-group">
                 <h3>属性</h3>
                 <div class="property-row">
+                    <span class="property-label">锁定位置</span>
+                    <div class="property-value">
+                        <input type="checkbox" ${props.locked ? 'checked' : ''} 
+                            onchange="editor.updateProperty('locked', this.checked)">
+                    </div>
+                </div>
+                <div class="property-row">
                     <span class="property-label">固体 (碰撞)</span>
                     <div class="property-value">
                         <input type="checkbox" ${props.solid ? 'checked' : ''} 
@@ -933,6 +2118,20 @@ class MapEditor {
                         <input type="range" min="0.5" max="3" step="0.1" value="${props.scale}" 
                             onchange="editor.updateProperty('scale', parseFloat(this.value))">
                         <span style="color: #888; font-size: 11px; margin-left: 5px;">${props.scale}x</span>
+                    </div>
+                </div>
+                <div class="property-row">
+                    <span class="property-label">水平翻转</span>
+                    <div class="property-value">
+                        <input type="checkbox" ${(props.flipH) ? 'checked' : ''} 
+                            onchange="editor.updateProperty('flipH', this.checked)">
+                    </div>
+                </div>
+                <div class="property-row">
+                    <span class="property-label">垂直翻转</span>
+                    <div class="property-value">
+                        <input type="checkbox" ${(props.flipV) ? 'checked' : ''} 
+                            onchange="editor.updateProperty('flipV', this.checked)">
                     </div>
                 </div>
             </div>
@@ -1026,7 +2225,7 @@ class MapEditor {
             if (toolBtn) toolBtn.classList.add('active');
         }
         
-        const cursors = { select: 'default', move: 'move', erase: 'not-allowed' };
+        const cursors = { select: 'default', move: 'move', erase: 'not-allowed', grid: 'crosshair', gridEraser: 'cell', picker: 'crosshair', fill: 'crosshair' };
         this.canvas.style.cursor = this.collisionEditMode ? 'cell' : (cursors[this.currentTool] || 'default');
     }
 
@@ -1036,11 +2235,23 @@ class MapEditor {
     }
 
     clearMap() {
-        if (confirm('确定要清空所有元素吗？')) {
+        if (confirm('确定要清空所有元素和绘制层吗？')) {
+            this.saveState();
             this.elements = [];
             this.selectedElement = null;
+            if (this.drawLayerCtx) {
+                this.drawLayerCtx.clearRect(0, 0, this.drawLayer.width, this.drawLayer.height);
+            }
             this.updatePropertiesPanel();
             this.updateUI();
+        }
+    }
+
+    clearDrawLayer() {
+        if (this.drawLayerCtx) {
+            this.saveState();
+            this.drawLayerCtx.clearRect(0, 0, this.drawLayer.width, this.drawLayer.height);
+            this.showNotification('已清空绘制层');
         }
     }
 
@@ -1052,7 +2263,7 @@ class MapEditor {
 
     duplicateSelected() {
         if (!this.selectedElement) return;
-        
+        this.saveState();
         const original = this.selectedElement;
         const newElement = new MapElement(
             this.nextId++,
@@ -1092,6 +2303,7 @@ class MapEditor {
         
         this.canvas.width = width;
         this.canvas.height = height;
+        this.resizeDrawLayer();
         
         // 移除超出边界的元素
         this.elements = this.elements.filter(el => 
@@ -1188,8 +2400,9 @@ class MapEditor {
 
         const trimmedImg = new Image();
         trimmedImg.onload = () => {
+            this.getImageWithCropOverride(name, trimmedImg, (finalImg) => {
             this.assets.set(name, { 
-                image: trimmedImg, 
+                image: finalImg, 
                 originalImage: originalImg,
                 category, 
                 name,
@@ -1210,36 +2423,160 @@ class MapEditor {
                     categoriesDiv.appendChild(categoryDiv);
                     customContainer = categoryDiv.querySelector('.asset-grid');
                 }
-                this.createAssetElement(name, trimmedImg, customContainer);
+                this.createAssetElement(name, finalImg, customContainer);
             } else if (container) {
-                this.createAssetElement(name, trimmedImg, container);
+                this.createAssetElement(name, finalImg, container);
             }
+            });
         };
         trimmedImg.src = trimmedCanvas.toDataURL();
     }
 
-    // ==================== 导出 ====================
-    exportMap() {
-        const exportData = {
-            canvas: {
-                width: CONFIG.CANVAS_WIDTH,
-                height: CONFIG.CANVAS_HEIGHT,
-                gridSize: CONFIG.GRID_SIZE
-            },
+    // ==================== 模板系统 ====================
+    loadTemplates() {
+        const builtIn = [
+            'sales-department.json', 'rd-department.json', 'open-office.json',
+            'meeting-room.json', 'startup-office.json'
+        ];
+        this.templates = [];
+        const loadNext = (i) => {
+            if (i >= builtIn.length) {
+                const saved = JSON.parse(localStorage.getItem('mapEditorTemplates') || '[]');
+                this.templates.push(...saved);
+                this.renderTemplateList();
+                return;
+            }
+            fetch(`presets/${builtIn[i]}`)
+                .then(r => r.json())
+                .then(data => {
+                    this.templates.push({ name: data.name, elements: data.elements, builtIn: true });
+                    loadNext(i + 1);
+                })
+                .catch(() => loadNext(i + 1));
+        };
+        loadNext(0);
+    }
+
+    renderTemplateList() {
+        const container = document.getElementById('templateList');
+        if (!container) return;
+        container.innerHTML = this.templates.map((t, i) => `
+            <div class="template-item" draggable="true" data-index="${i}"
+                ondragstart="editor.handleTemplateDragStart(event, ${i})"
+                ondragend="editor.handleTemplateDragEnd(event)">
+                <span class="template-item-icon">📋</span>
+                <div class="template-item-info">
+                    <div class="template-item-name">${t.name || '未命名'}</div>
+                    <div class="template-item-count">${(t.elements || []).length} 个元素</div>
+                </div>
+                <div class="template-item-actions">
+                    <button class="template-item-btn" onclick="event.stopPropagation();editor.loadTemplate(${i})" title="加载到画布（替换）">加载</button>
+                    ${t.builtIn ? '' : `<button class="template-item-btn" onclick="event.stopPropagation();editor.deleteTemplate(${i})" title="删除">删</button>`}
+                </div>
+            </div>
+        `).join('');
+    }
+
+    handleTemplateDragStart(e, index) {
+        e.dataTransfer.setData('template-index', String(index));
+        e.dataTransfer.effectAllowed = 'copy';
+        e.target.classList.add('dragging');
+    }
+
+    handleTemplateDragEnd(e) {
+        e.target.classList.remove('dragging');
+    }
+
+    loadTemplate(index) {
+        const t = this.templates[index];
+        if (!t || !t.elements) return;
+        this.loadFromConfig({ canvas: { width: CONFIG.CANVAS_WIDTH, height: CONFIG.CANVAS_HEIGHT, gridSize: CONFIG.GRID_SIZE }, elements: t.elements });
+        this.showNotification(`已加载模板：${t.name}`);
+    }
+
+    placeTemplateAt(index, dropX, dropY) {
+        const t = this.templates[index];
+        if (!t || !t.elements || t.elements.length === 0) return;
+        let minX = Infinity, minY = Infinity;
+        t.elements.forEach(el => {
+            minX = Math.min(minX, el.x);
+            minY = Math.min(minY, el.y);
+        });
+        const offsetX = dropX - minX;
+        const offsetY = dropY - minY;
+        t.elements.forEach(elData => {
+            const data = { ...elData, x: elData.x + offsetX, y: elData.y + offsetY };
+            this.createElementFromPreset(data);
+        });
+        this.showNotification(`已放置模板：${t.name}`);
+    }
+
+    saveAsTemplate() {
+        if (this.elements.length === 0) {
+            this.showNotification('画布为空，无法保存为模板');
+            return;
+        }
+        const name = prompt('模板名称：', '我的模板') || '未命名';
+        const data = {
+            name,
             elements: this.elements.map(el => ({
-                id: el.id,
-                type: el.type,
-                name: el.name,
-                x: el.x,
-                y: el.y,
+                assetKey: el.assetKey || el.type,
+                x: el.x, y: el.y,
                 pixelBlocks: el.pixelBlocks,
-                width: el.width,
-                height: el.height,
+                name: el.name,
                 properties: el.properties,
                 collisionBounds: el.collisionBounds
-            }))
+            })),
+            builtIn: false
         };
+        const saved = JSON.parse(localStorage.getItem('mapEditorTemplates') || '[]');
+        saved.push(data);
+        localStorage.setItem('mapEditorTemplates', JSON.stringify(saved));
+        this.templates.push(data);
+        this.renderTemplateList();
+        this.showNotification(`已保存模板：${name}`);
+    }
 
+    deleteTemplate(index) {
+        const t = this.templates[index];
+        if (t && t.builtIn) return;
+        this.templates.splice(index, 1);
+        const saved = this.templates.filter(x => !x.builtIn);
+        localStorage.setItem('mapEditorTemplates', JSON.stringify(saved));
+        this.renderTemplateList();
+        this.showNotification('模板已删除');
+    }
+
+    loadFromConfig(data) {
+        if (!data.canvas || !data.elements) return;
+        CONFIG.CANVAS_WIDTH = data.canvas.width || 1000;
+        CONFIG.CANVAS_HEIGHT = data.canvas.height || 750;
+        CONFIG.GRID_SIZE = data.canvas.gridSize || 20;
+        this.canvas.width = CONFIG.CANVAS_WIDTH;
+        this.canvas.height = CONFIG.CANVAS_HEIGHT;
+        this.resizeDrawLayer();
+
+        this.elements = [];
+        this.selectedElement = null;
+        this.nextId = 1;
+
+        data.elements.forEach(elData => this.createElementFromPreset(elData));
+        if (data.drawLayer && this.drawLayer && this.drawLayerCtx) {
+            const img = new Image();
+            img.onload = () => {
+                this.drawLayerCtx.clearRect(0, 0, this.drawLayer.width, this.drawLayer.height);
+                this.drawLayerCtx.drawImage(img, 0, 0);
+            };
+            img.src = data.drawLayer;
+        }
+        this.updateCanvasInfo();
+        this.updatePropertiesPanel();
+        this.showNotification(`已加载预设：${data.name || '场景'}`);
+    }
+
+    // ==================== 导出 ====================
+    exportMap() {
+        const exportData = this.getExportData();
         const json = JSON.stringify(exportData, null, 2);
         const blob = new Blob([json], { type: 'application/json' });
         const url = URL.createObjectURL(blob);

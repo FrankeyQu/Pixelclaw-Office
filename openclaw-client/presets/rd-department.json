@@ -1,0 +1,28 @@
+{
+  "name": "研发部",
+  "description": "技术研发办公场景，密集工位与休闲区",
+  "canvas": { "width": 1000, "height": 750, "gridSize": 20 },
+  "elements": [
+    { "assetKey": "floorLinoleum", "x": 0, "y": 0, "pixelBlocks": { "w": 50, "h": 38 }, "name": "复合地板" },
+    { "assetKey": "desk", "x": 80, "y": 100, "name": "工位" },
+    { "assetKey": "monitor", "x": 90, "y": 100, "name": "显示器" },
+    { "assetKey": "chair", "x": 100, "y": 160, "name": "椅子" },
+    { "assetKey": "desk", "x": 200, "y": 100, "name": "工位" },
+    { "assetKey": "monitor", "x": 210, "y": 100, "name": "显示器" },
+    { "assetKey": "chair", "x": 220, "y": 160, "name": "椅子" },
+    { "assetKey": "desk", "x": 320, "y": 100, "name": "工位" },
+    { "assetKey": "chair", "x": 340, "y": 160, "name": "椅子" },
+    { "assetKey": "desk", "x": 80, "y": 300, "name": "工位" },
+    { "assetKey": "chair", "x": 100, "y": 360, "name": "椅子" },
+    { "assetKey": "desk", "x": 200, "y": 300, "name": "工位" },
+    { "assetKey": "chair", "x": 220, "y": 360, "name": "椅子" },
+    { "assetKey": "desk", "x": 320, "y": 300, "name": "工位" },
+    { "assetKey": "chair", "x": 340, "y": 360, "name": "椅子" },
+    { "assetKey": "meetingTable", "x": 520, "y": 180, "pixelBlocks": { "w": 6, "h": 4 }, "name": "站立会议区" },
+    { "assetKey": "sofa", "x": 480, "y": 420, "name": "休息沙发" },
+    { "assetKey": "coffeeMachine", "x": 620, "y": 500, "name": "咖啡机" },
+    { "assetKey": "printer", "x": 720, "y": 120, "name": "打印机" },
+    { "assetKey": "plant", "x": 800, "y": 300, "name": "绿植" },
+    { "assetKey": "plant", "x": 800, "y": 500, "name": "绿植" }
+  ]
+}

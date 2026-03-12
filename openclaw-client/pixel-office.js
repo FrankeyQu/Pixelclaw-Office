@@ -45,6 +45,7 @@ class Agent {
         this.messages = [];
         this.color = this.generateColor();
         this.avatar = this.getRandomAvatar();
+        this.model = 'personStanding';
         this.bobOffset = 0;
         this.lastUpdate = Date.now();
         this.speechBubble = null;
@@ -56,9 +57,17 @@ class Agent {
         return colors[Math.floor(Math.random() * colors.length)];
     }
 
+    static AVATARS = ['👤', '👨‍💼', '👩‍💼', '👨‍💻', '👩‍💻', '🤖', '👾', '🦊', '🐱', '🐶', '🐼', '🦁', '🐸', '🐵', '👽', '🎭'];
+
+    static PEOPLE_MODELS = [
+        { key: 'personStanding', name: '站立' },
+        { key: 'personWorking', name: '办公' },
+        { key: 'receptionist', name: '前台' },
+        { key: 'manager', name: '经理' }
+    ];
+
     getRandomAvatar() {
-        const avatars = ['👤', '👨‍💼', '👩‍💼', '👨‍💻', '👩‍💻', '🤖', '👾', '🦊', '🐱'];
-        return avatars[Math.floor(Math.random() * avatars.length)];
+        return Agent.AVATARS[Math.floor(Math.random() * Agent.AVATARS.length)];
     }
 
     update() {
@@ -183,14 +192,46 @@ class PixelOffice {
             plants: [],
             decorations: []
         };
+        // 自定义地图（来自地图编辑器）
+        this.currentMapImage = null;
 
         this.init();
+    }
+
+    loadCurrentMapImage() {
+        try {
+            const raw = localStorage.getItem('pixelOfficeCurrentMap');
+            if (!raw) return;
+            const data = JSON.parse(raw);
+            if (data.renderedImage) {
+                const img = new Image();
+                img.onload = () => {
+                    this.currentMapImage = img;
+                    this.updateMapModeUI(true);
+                };
+                img.src = data.renderedImage;
+            }
+        } catch (e) { console.warn('加载当前地图失败', e); }
+    }
+
+    clearCurrentMap() {
+        localStorage.removeItem('pixelOfficeCurrentMap');
+        this.currentMapImage = null;
+        this.updateMapModeUI(false);
+    }
+
+    updateMapModeUI(usingCustom) {
+        const hint = document.getElementById('mapModeHint');
+        const btn = document.getElementById('btnRestoreDefaultMap');
+        if (hint) hint.style.display = usingCustom ? 'block' : 'none';
+        if (btn) btn.style.display = usingCustom ? 'block' : 'none';
     }
 
     async init() {
         this.bindEvents();
         await this.loadImages();
         this.generateOfficeLayout();
+        this.loadCurrentMapImage();
         this.createInitialAgents();
         this.hideLoading();
         this.startRenderLoop();
@@ -410,11 +451,12 @@ class PixelOffice {
         this.ctx.translate(this.cameraOffset.x, this.cameraOffset.y);
         this.ctx.scale(this.zoom, this.zoom);
 
-        // 渲染地板
-        this.renderFloor();
-
-        // 渲染办公室布局
-        this.renderOfficeLayout();
+        if (this.currentMapImage && this.currentMapImage.complete) {
+            this.ctx.drawImage(this.currentMapImage, 0, 0, this.canvas.width, this.canvas.height);
+        } else {
+            this.renderFloor();
+            this.renderOfficeLayout();
+        }
 
         // 渲染 Agent
         this.renderAgents();
@@ -737,16 +779,14 @@ class PixelOffice {
         this.ctx.ellipse(x + size / 2, agent.y + size - 2, size / 2.2, size / 4, 0, 0, Math.PI * 2);
         this.ctx.fill();
 
-        // 选择人物图片
-        let img = null;
-        if (agent.status === 'working') {
-            img = this.images.personWorking;
-        } else if (agent.name.includes('前台')) {
-            img = this.images.receptionist;
-        } else if (agent.name.includes('经理')) {
-            img = this.images.manager;
-        } else {
-            img = this.images.personStanding;
+        // 人物模型：优先使用 Agent 选择的模型，否则按状态/名称回退
+        const modelKey = agent.model || 'personStanding';
+        let img = this.images[modelKey];
+        if (!img?.complete) {
+            if (agent.status === 'working') img = this.images.personWorking;
+            else if (agent.name.includes('前台')) img = this.images.receptionist;
+            else if (agent.name.includes('经理')) img = this.images.manager;
+            else img = this.images.personStanding;
         }
 
         // 绘制人物
@@ -1180,7 +1220,55 @@ class PixelOffice {
         document.getElementById('agentPersonality').value = this.selectedAgent.personality;
         document.getElementById('agentChannel').value = this.selectedAgent.channel;
 
+        const picker = document.getElementById('agentAvatarPicker');
+        if (picker) {
+            picker.innerHTML = Agent.AVATARS.map((a, i) => {
+                const sel = this.selectedAgent.avatar === a ? ' selected' : '';
+                return `<button type="button" class="avatar-btn" data-index="${i}" style="font-size:24px;padding:8px;border:2px solid ${sel ? '#e94560' : '#444'};background:${sel ? 'rgba(233,69,96,0.2)' : '#2a2a40'};border-radius:8px;cursor:pointer;">${a}</button>`;
+            }).join('');
+            picker.querySelectorAll('.avatar-btn').forEach(btn => {
+                btn.onclick = () => this.selectAgentAvatar(Agent.AVATARS[parseInt(btn.dataset.index, 10)]);
+            });
+        }
+        const modelPicker = document.getElementById('agentModelPicker');
+        if (modelPicker) {
+            modelPicker.innerHTML = Agent.PEOPLE_MODELS.map(m => {
+                const sel = this.selectedAgent.model === m.key;
+                const img = this.images[m.key];
+                const thumb = img?.complete ? `<img src="${img.src}" alt="${m.name}" style="width:36px;height:36px;object-fit:contain;display:block;">` : `<span style="font-size:14px;">${m.name}</span>`;
+                return `<button type="button" class="model-btn" data-key="${m.key}" style="padding:6px;border:2px solid ${sel ? '#e94560' : '#444'};background:${sel ? 'rgba(233,69,96,0.2)' : '#2a2a40'};border-radius:8px;cursor:pointer;" title="${m.name}">${thumb}</button>`;
+            }).join('');
+            modelPicker.querySelectorAll('.model-btn').forEach(btn => {
+                btn.onclick = () => this.selectAgentModel(btn.dataset.key);
+            });
+        }
         document.getElementById('configModal').classList.add('active');
+    }
+
+    selectAgentAvatar(avatar) {
+        if (!this.selectedAgent) return;
+        this.selectedAgent.avatar = avatar;
+        const picker = document.getElementById('agentAvatarPicker');
+        if (picker) {
+            picker.querySelectorAll('.avatar-btn').forEach((btn, i) => {
+                const isSel = Agent.AVATARS[i] === avatar;
+                btn.style.borderColor = isSel ? '#e94560' : '#444';
+                btn.style.background = isSel ? 'rgba(233,69,96,0.2)' : '#2a2a40';
+            });
+        }
+    }
+
+    selectAgentModel(modelKey) {
+        if (!this.selectedAgent) return;
+        this.selectedAgent.model = modelKey;
+        const picker = document.getElementById('agentModelPicker');
+        if (picker) {
+            picker.querySelectorAll('.model-btn').forEach(btn => {
+                const isSel = btn.dataset.key === modelKey;
+                btn.style.borderColor = isSel ? '#e94560' : '#444';
+                btn.style.background = isSel ? 'rgba(233,69,96,0.2)' : '#2a2a40';
+            });
+        }
     }
 
     closeConfigModal() {

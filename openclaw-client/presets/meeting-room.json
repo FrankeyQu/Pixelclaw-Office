@@ -1,0 +1,21 @@
+{
+  "name": "会议室",
+  "description": "独立会议室场景",
+  "canvas": { "width": 1000, "height": 750, "gridSize": 20 },
+  "elements": [
+    { "assetKey": "floorCarpet", "x": 0, "y": 0, "pixelBlocks": { "w": 50, "h": 38 }, "name": "地毯" },
+    { "assetKey": "meetingTable", "x": 280, "y": 220, "pixelBlocks": { "w": 12, "h": 8 }, "name": "会议桌" },
+    { "assetKey": "chair", "x": 320, "y": 140, "name": "椅子" },
+    { "assetKey": "chair", "x": 480, "y": 140, "name": "椅子" },
+    { "assetKey": "chair", "x": 640, "y": 140, "name": "椅子" },
+    { "assetKey": "chair", "x": 320, "y": 500, "name": "椅子" },
+    { "assetKey": "chair", "x": 480, "y": 500, "name": "椅子" },
+    { "assetKey": "chair", "x": 640, "y": 500, "name": "椅子" },
+    { "assetKey": "manager", "x": 500, "y": 300, "name": "主持人" },
+    { "assetKey": "glassWall", "x": 100, "y": 80, "pixelBlocks": { "w": 6, "h": 12 }, "name": "玻璃墙" },
+    { "assetKey": "glassWall", "x": 800, "y": 80, "pixelBlocks": { "w": 6, "h": 12 }, "name": "玻璃墙" },
+    { "assetKey": "plant", "x": 120, "y": 600, "name": "绿植" },
+    { "assetKey": "plant", "x": 820, "y": 600, "name": "绿植" },
+    { "assetKey": "coffeeMachine", "x": 420, "y": 620, "name": "茶水" }
+  ]
+}

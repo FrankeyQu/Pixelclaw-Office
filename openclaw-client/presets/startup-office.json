@@ -1,0 +1,25 @@
+{
+  "name": "创业公司",
+  "description": "小而美的创业团队办公场景",
+  "canvas": { "width": 1000, "height": 750, "gridSize": 20 },
+  "elements": [
+    { "assetKey": "floorMarble", "x": 0, "y": 0, "pixelBlocks": { "w": 50, "h": 38 }, "name": "大理石" },
+    { "assetKey": "receptionDesk", "x": 350, "y": 60, "name": "前台" },
+    { "assetKey": "receptionist", "x": 400, "y": 90, "name": "前台" },
+    { "assetKey": "desk", "x": 120, "y": 280, "name": "工位" },
+    { "assetKey": "chair", "x": 140, "y": 340, "name": "椅子" },
+    { "assetKey": "desk", "x": 280, "y": 280, "name": "工位" },
+    { "assetKey": "chair", "x": 300, "y": 340, "name": "椅子" },
+    { "assetKey": "desk", "x": 520, "y": 280, "name": "工位" },
+    { "assetKey": "chair", "x": 540, "y": 340, "name": "椅子" },
+    { "assetKey": "desk", "x": 680, "y": 280, "name": "工位" },
+    { "assetKey": "chair", "x": 700, "y": 340, "name": "椅子" },
+    { "assetKey": "sofa", "x": 180, "y": 520, "name": "休闲区" },
+    { "assetKey": "sofa", "x": 720, "y": 480, "name": "休闲角" },
+    { "assetKey": "coffeeMachine", "x": 400, "y": 580, "name": "咖啡机" },
+    { "assetKey": "meetingTable", "x": 360, "y": 400, "pixelBlocks": { "w": 6, "h": 4 }, "name": "小会议桌" },
+    { "assetKey": "plant", "x": 120, "y": 120, "name": "绿植" },
+    { "assetKey": "plant", "x": 800, "y": 120, "name": "绿植" },
+    { "assetKey": "printer", "x": 60, "y": 120, "name": "打印机" }
+  ]
+}

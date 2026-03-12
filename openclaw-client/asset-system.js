@@ -4,6 +4,7 @@
  */
 
 // ==================== 配置 ====================
+const DEBUG_ASSET = false; // 开发调试时设为 true
 const CONFIG = {
     CANVAS_SIZE: 512,
     DEFAULT_TARGET_SIZE: 64,
@@ -113,16 +114,16 @@ class AIGenerator {
     // 生成简单的像素图案
     static generatePattern(type, size, colors) {
         try {
-            console.log('开始生成图案:', { type, size, colors });
+            if (DEBUG_ASSET) console.log('开始生成图案:', { type, size, colors });
             
             // 检查document是否存在
             if (!document) {
                 throw new Error('document对象不存在');
             }
             
-            console.log('document存在，开始创建canvas');
+            if (DEBUG_ASSET) console.log('document存在，开始创建canvas');
             const canvas = document.createElement('canvas');
-            console.log('canvas创建结果:', canvas);
+            if (DEBUG_ASSET) console.log('canvas创建结果:', canvas);
             
             if (!canvas) {
                 throw new Error('无法创建canvas元素');
@@ -130,31 +131,39 @@ class AIGenerator {
             
             canvas.width = size;
             canvas.height = size;
-            console.log('canvas尺寸设置完成:', { width: canvas.width, height: canvas.height });
+            if (DEBUG_ASSET) console.log('canvas尺寸设置完成:', { width: canvas.width, height: canvas.height });
             
             const ctx = canvas.getContext('2d');
-            console.log('canvas上下文获取结果:', ctx);
+            if (DEBUG_ASSET) console.log('canvas上下文获取结果:', ctx);
             
             if (!ctx) {
                 throw new Error('无法获取canvas上下文');
             }
             
-            console.log('开始生成调色板');
+            if (DEBUG_ASSET) console.log('开始生成调色板');
             const palette = this.generatePalette(colors);
-            console.log('调色板生成完成:', palette);
+            if (DEBUG_ASSET) console.log('调色板生成完成:', palette);
             
-            console.log('开始生成具体图案:', type);
+            if (DEBUG_ASSET) console.log('开始生成具体图案:', type);
             switch (type) {
-                case 'noise':
-                    return this.generateNoise(ctx, size, palette);
-                case 'gradient':
-                    return this.generateGradient(ctx, size, palette);
+                case 'house':
+                    return this.generatePixelHouse(ctx, size, palette);
+                case 'desk':
+                    return this.generatePixelDesk(ctx, size, palette);
+                case 'plant':
+                    return this.generatePixelPlant(ctx, size, palette);
+                case 'animal':
+                    return this.generatePixelAnimal(ctx, size, palette);
                 case 'checkerboard':
                     return this.generateCheckerboard(ctx, size, palette);
                 case 'circles':
                     return this.generateCircles(ctx, size, palette);
                 case 'stripes':
                     return this.generateStripes(ctx, size, palette);
+                case 'noise':
+                    return this.generateNoise(ctx, size, palette);
+                case 'gradient':
+                    return this.generateGradient(ctx, size, palette);
                 case 'random':
                 default:
                     return this.generateRandom(ctx, size, palette);
@@ -263,11 +272,78 @@ class AIGenerator {
     
     // 生成随机图案
     static generateRandom(ctx, size, palette) {
-        const patterns = ['noise', 'gradient', 'checkerboard', 'circles', 'stripes'];
+        const patterns = ['house', 'desk', 'plant', 'animal', 'checkerboard', 'circles', 'stripes'];
         const randomPattern = patterns[Math.floor(Math.random() * patterns.length)];
-        // 直接调用generatePattern获取结果
-        const result = this.generatePattern(randomPattern, size, palette.length);
-        return result;
+        return this.generatePattern(randomPattern, size, palette.length);
+    }
+
+    // 像素风格 - 房子 (0空 1屋顶 2墙 3门 4窗)
+    static generatePixelHouse(ctx, size, palette) {
+        const gs = Math.max(4, Math.floor(size / 10));
+        const grid = 8;
+        const sprite = [
+            [0,0,0,1,1,1,0,0], [0,0,1,1,1,1,1,0], [0,1,2,2,2,2,2,1],
+            [1,2,2,2,2,2,2,2], [2,2,2,4,2,4,2,2], [2,2,2,2,2,2,2,2],
+            [2,2,2,3,3,3,2,2], [2,2,2,2,2,2,2,2]
+        ];
+        this.drawPixelSprite(ctx, size, palette, sprite, gs, grid);
+        return { canvas: ctx.canvas, palette };
+    }
+
+    // 像素风格 - 办公桌 (0空 1桌面 2桌腿 3屏幕)
+    static generatePixelDesk(ctx, size, palette) {
+        const gs = Math.max(4, Math.floor(size / 10));
+        const grid = 8;
+        const sprite = [
+            [0,0,0,3,3,0,0,0], [0,0,0,3,3,0,0,0], [0,0,1,1,1,1,0,0],
+            [0,1,1,1,1,1,1,0], [1,1,1,1,1,1,1,1], [0,0,2,0,0,2,0,0],
+            [0,0,2,0,0,2,0,0], [0,0,2,0,0,2,0,0]
+        ];
+        this.drawPixelSprite(ctx, size, palette, sprite, gs, grid);
+        return { canvas: ctx.canvas, palette };
+    }
+
+    // 像素风格 - 盆栽 (0空 1花盆 2叶子)
+    static generatePixelPlant(ctx, size, palette) {
+        const gs = Math.max(4, Math.floor(size / 10));
+        const grid = 8;
+        const sprite = [
+            [0,0,0,2,2,0,0,0], [0,0,2,2,2,2,0,0], [0,2,2,2,2,2,2,0],
+            [0,0,2,2,2,2,0,0], [0,0,0,2,2,0,0,0], [0,0,1,1,1,1,0,0],
+            [0,1,1,1,1,1,1,0], [1,1,1,1,1,1,1,1]
+        ];
+        this.drawPixelSprite(ctx, size, palette, sprite, gs, grid);
+        return { canvas: ctx.canvas, palette };
+    }
+
+    // 像素风格 - 小动物/猫 (0空 1身体 2脚)
+    static generatePixelAnimal(ctx, size, palette) {
+        const gs = Math.max(4, Math.floor(size / 10));
+        const grid = 8;
+        const sprite = [
+            [0,0,0,1,1,0,0,0], [0,0,1,1,1,1,0,0], [0,1,1,1,1,1,1,0],
+            [0,1,1,1,1,1,1,0], [0,1,1,1,1,1,1,0], [0,0,2,0,0,2,0,0],
+            [0,0,2,0,0,2,0,0], [0,0,0,0,0,0,0,0]
+        ];
+        this.drawPixelSprite(ctx, size, palette, sprite, gs, grid);
+        return { canvas: ctx.canvas, palette };
+    }
+
+    static drawPixelSprite(ctx, size, palette, sprite, gs, grid) {
+        const padX = (size - grid * gs) / 2;
+        const padY = (size - grid * gs) / 2;
+        const bg = palette[0] || [30, 25, 25];
+        ctx.fillStyle = `rgb(${bg[0]},${bg[1]},${bg[2]})`;
+        ctx.fillRect(0, 0, size, size);
+        for (let r = 0; r < grid && r < sprite.length; r++) {
+            for (let c = 0; c < grid && c < sprite[r].length; c++) {
+                const idx = sprite[r][c];
+                if (idx === 0) continue;
+                const color = palette[idx % palette.length] || palette[0];
+                ctx.fillStyle = `rgb(${color[0]},${color[1]},${color[2]})`;
+                ctx.fillRect(padX + c * gs, padY + r * gs, gs, gs);
+            }
+        }
     }
 }
 
@@ -349,6 +425,7 @@ class ColorQuantizer {
     }
     
     static findClosestColor(color, palette) {
+        if (!palette || palette.length === 0) return 0;
         let minDist = Infinity;
         let closest = 0;
         
@@ -412,7 +489,7 @@ class AssetSystem {
         this.convertedImage = null;
         this.currentAsset = null; // 当前点阵资产
         this.palette = [];
-        this.currentTool = 'pencil';
+        this.currentTool = 'grid';
         this.zoomIndex = CONFIG.DEFAULT_ZOOM_INDEX;
         this.selectedColor = 0;
         
@@ -423,6 +500,11 @@ class AssetSystem {
         this.isDrawing = false;
         this.lastX = 0;
         this.lastY = 0;
+        
+        // 裁剪状态
+        this.cropStart = null;
+        this.cropEnd = null;
+        this.pendingCropRect = null;
         
         this.assets = new Map();
         this.frames = [];
@@ -437,8 +519,129 @@ class AssetSystem {
     init() {
         this.bindEvents();
         this.generatePalette();
+        this.loadBuiltInAssets();
         this.updateUI();
         this.updateConvertParams();
+        this.renderGrid();
+    }
+    
+    loadBuiltInAssets() {
+        const libraryContent = document.getElementById('libraryContent');
+        if (!libraryContent) return;
+        libraryContent.innerHTML = '';
+        
+        const categories = {
+            floor: { title: '🟫 地板', items: ['floorWood', 'floorTile', 'floorCarpet', 'floorMarble', 'floorConcrete', 'floorLinoleum'] },
+            furniture: { title: '🪑 家具', items: ['desk', 'chair', 'monitor', 'meetingTable', 'receptionDesk', 'sofa'] },
+            people: { title: '👥 人物', items: ['personWorking', 'personStanding', 'receptionist', 'manager'] },
+            environment: { title: '🏢 环境', items: ['glassWall', 'window', 'door', 'plant'] },
+            decorations: { title: '🎨 装饰', items: ['coffeeMachine', 'printer', 'filingCabinet'] }
+        };
+        const names = {
+            floorWood: '木地板', floorTile: '白瓷砖', floorCarpet: '地毯', floorMarble: '大理石', floorConcrete: '水泥', floorLinoleum: '复合地板',
+            desk: '办公桌', chair: '椅子', monitor: '显示器', meetingTable: '会议桌', receptionDesk: '前台', sofa: '沙发',
+            personWorking: '办公', personStanding: '站立', receptionist: '前台', manager: '经理',
+            glassWall: '玻璃墙', window: '窗户', door: '门', plant: '盆栽',
+            coffeeMachine: '咖啡机', printer: '打印机', filingCabinet: '文件柜'
+        };
+        const paths = {
+            desk: 'assets/furniture/desk_isometric.png', chair: 'assets/furniture/chair_isometric.png', monitor: 'assets/furniture/monitor_isometric.png',
+            meetingTable: 'assets/furniture/meeting_table.png', receptionDesk: 'assets/furniture/reception_desk.png', sofa: 'assets/furniture/sofa_lounge.png',
+            personWorking: 'assets/people/person_working.png', personStanding: 'assets/people/person_standing.png',
+            receptionist: 'assets/people/receptionist.png', manager: 'assets/people/manager.png',
+            glassWall: 'assets/environment/glass_wall.png', window: 'assets/environment/window.png', door: 'assets/environment/door.png',
+            plant: 'assets/decorations/plant.png', coffeeMachine: 'assets/decorations/coffee_machine.png', printer: 'assets/decorations/printer.png',
+            filingCabinet: 'assets/furniture/filing_cabinet.png'
+        };
+        
+        Object.entries(categories).forEach(([cat, { title, items }]) => {
+            const div = document.createElement('div');
+            div.className = 'asset-category';
+            div.innerHTML = `<div class="asset-category-title">${title}</div><div class="asset-grid" data-category="${cat}"></div>`;
+            libraryContent.appendChild(div);
+            const grid = div.querySelector('.asset-grid');
+            items.forEach(key => {
+                const itemDiv = document.createElement('div');
+                itemDiv.className = 'asset-item';
+                itemDiv.title = names[key] || key;
+                if (cat === 'floor') {
+                    const img = new Image();
+                    img.onload = () => {
+                        itemDiv.innerHTML = `<img src="${img.src}" alt="${names[key]}"><span class="asset-name">${names[key]}</span>`;
+                        itemDiv.onclick = () => this.loadBuiltInImage(img, names[key]);
+                        grid.appendChild(itemDiv);
+                    };
+                    img.src = this.createFloorTexture(key);
+                } else {
+                    const img = new Image();
+                    img.onload = () => {
+                        itemDiv.innerHTML = `<img src="${img.src}" alt="${names[key]}"><span class="asset-name">${names[key]}</span>`;
+                        itemDiv.onclick = () => this.loadBuiltInImage(img, names[key]);
+                        grid.appendChild(itemDiv);
+                    };
+                    img.onerror = () => { itemDiv.innerHTML = `<span class="asset-name">${names[key]} (加载失败)</span>`; grid.appendChild(itemDiv); };
+                    img.src = paths[key] || '';
+                }
+            });
+        });
+        
+        const dotDiv = document.createElement('div');
+        dotDiv.className = 'asset-category';
+        dotDiv.innerHTML = '<div class="asset-category-title">🔴 点阵资产</div><div class="asset-grid" data-category="dotmatrix"></div>';
+        libraryContent.appendChild(dotDiv);
+        
+        try {
+            const mapAssets = JSON.parse(localStorage.getItem('mapEditorAssets') || '[]');
+            mapAssets.forEach(assetData => {
+                const img = new Image();
+                img.onload = () => {
+                    const itemDiv = document.createElement('div');
+                    itemDiv.className = 'asset-item';
+                    itemDiv.innerHTML = `<img src="${img.src}" alt="${assetData.name}"><span class="asset-name">${assetData.name}</span>`;
+                    itemDiv.onclick = () => this.loadBuiltInImage(img, assetData.name);
+                    dotDiv.querySelector('.asset-grid').appendChild(itemDiv);
+                };
+                img.src = assetData.image;
+            });
+        } catch (_) {}
+    }
+    
+    createFloorTexture(type) {
+        const size = CONFIG.GRID_SIZE;
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        const patterns = {
+            floorWood: () => {
+                const g = ctx.createLinearGradient(0, 0, size, 0);
+                g.addColorStop(0, '#8b6914'); g.addColorStop(0.5, '#a67c00'); g.addColorStop(1, '#6b5012');
+                ctx.fillStyle = g;
+                ctx.fillRect(0, 0, size, size);
+            },
+            floorTile: () => { ctx.fillStyle = '#e8e4e0'; ctx.fillRect(0, 0, size, size); },
+            floorCarpet: () => {
+                const g = ctx.createRadialGradient(size/2, size/2, 0, size/2, size/2, size/2);
+                g.addColorStop(0, '#5a4a6a'); g.addColorStop(1, '#4a3a5a');
+                ctx.fillStyle = g;
+                ctx.fillRect(0, 0, size, size);
+            },
+            floorMarble: () => { ctx.fillStyle = '#d4d0cc'; ctx.fillRect(0, 0, size, size); },
+            floorConcrete: () => { ctx.fillStyle = '#9a9590'; ctx.fillRect(0, 0, size, size); },
+            floorLinoleum: () => { ctx.fillStyle = '#2d4a3e'; ctx.fillRect(0, 0, size, size); }
+        };
+        if (patterns[type]) patterns[type]();
+        return canvas.toDataURL('image/png');
+    }
+    
+    loadBuiltInImage(img, name) {
+        this.originalImage = img;
+        this.canvas.width = img.width;
+        this.canvas.height = img.height;
+        this.ctx.drawImage(img, 0, 0);
+        this.saveHistory();
+        this.updateCanvasInfo();
+        this.showNotification(`已加载: ${name}，可进行转换`);
     }
     
     bindEvents() {
@@ -484,7 +687,7 @@ class AssetSystem {
     
     selectAIPattern(type) {
         try {
-            console.log('选择的AI图案类型:', type);
+            if (DEBUG_ASSET) console.log('选择的AI图案类型:', type);
             
             // 获取当前格子设置
             const gridCells = parseInt(document.getElementById('gridCells').value);
@@ -492,7 +695,7 @@ class AssetSystem {
             const size = gridCells * pixelsPerCell;
             const colorCount = parseInt(document.getElementById('colorCount').value);
             
-            console.log('AI生成参数:', { type, size, colorCount, gridCells, pixelsPerCell });
+            if (DEBUG_ASSET) console.log('AI生成参数:', { type, size, colorCount, gridCells, pixelsPerCell });
             
             this.generateWithAI(type, size, colorCount);
             this.closeAIDialog();
@@ -544,11 +747,11 @@ class AssetSystem {
                 return;
             }
             
-            console.log('自定义图案参数:', { description, gridWidth, gridHeight });
+            if (DEBUG_ASSET) console.log('自定义图案参数:', { description, gridWidth, gridHeight });
             
             // 根据描述选择图案类型
             const type = this.getPatternTypeFromDescription(description);
-            console.log('根据描述选择的图案类型:', type);
+            if (DEBUG_ASSET) console.log('根据描述选择的图案类型:', type);
             
             // 获取每格像素数
             const pixelsPerCell = parseInt(document.getElementById('pixelsPerCell').value);
@@ -556,7 +759,7 @@ class AssetSystem {
             const height = gridHeight * pixelsPerCell;
             const colorCount = parseInt(document.getElementById('colorCount').value);
             
-            console.log('生成参数:', { type, width, height, colorCount, pixelsPerCell });
+            if (DEBUG_ASSET) console.log('生成参数:', { type, width, height, colorCount, pixelsPerCell });
             
             // 更新格子设置
             document.getElementById('gridCells').value = Math.max(gridWidth, gridHeight);
@@ -587,29 +790,23 @@ class AssetSystem {
         }
     }
     
-    // 根据描述获取图案类型
+    // 根据描述获取图案类型（按提示词映射到像素风格元素）
     getPatternTypeFromDescription(description) {
         const desc = description.toLowerCase();
-        
-        if (desc.includes('房子') || desc.includes('建筑') || desc.includes('house') || desc.includes('building')) {
-            return 'checkerboard';
-        } else if (desc.includes('树') || desc.includes('植物') || desc.includes('tree') || desc.includes('plant')) {
-            return 'circles';
-        } else if (desc.includes('人物') || desc.includes('人') || desc.includes('person') || desc.includes('human')) {
-            return 'noise';
-        } else if (desc.includes('天空') || desc.includes('背景') || desc.includes('sky') || desc.includes('background')) {
-            return 'gradient';
-        } else if (desc.includes('地面') || desc.includes('道路') || desc.includes('ground') || desc.includes('road')) {
-            return 'stripes';
-        } else {
-            return 'random';
-        }
+        if (desc.includes('房子') || desc.includes('建筑') || desc.includes('house') || desc.includes('building')) return 'house';
+        if (desc.includes('办公桌') || desc.includes('桌子') || desc.includes('desk') || desc.includes('table')) return 'desk';
+        if (desc.includes('盆栽') || desc.includes('树') || desc.includes('植物') || desc.includes('plant') || desc.includes('tree')) return 'plant';
+        if (desc.includes('动物') || desc.includes('猫') || desc.includes('狗') || desc.includes('animal') || desc.includes('cat') || desc.includes('dog')) return 'animal';
+        if (desc.includes('人物') || desc.includes('人') || desc.includes('person')) return 'random';
+        if (desc.includes('天空') || desc.includes('背景') || desc.includes('sky')) return 'gradient';
+        if (desc.includes('地面') || desc.includes('道路') || desc.includes('ground')) return 'stripes';
+        return 'random';
     }
     
     // 根据描述绘制图案
     drawPatternByDescription(description, width, height, colorCount) {
         try {
-            console.log('根据描述绘制图案:', { description, width, height, colorCount });
+            if (DEBUG_ASSET) console.log('根据描述绘制图案:', { description, width, height, colorCount });
             
             // 生成调色板
             const palette = [];
@@ -626,20 +823,20 @@ class AssetSystem {
             
             const desc = description.toLowerCase();
             
-            if (desc.includes('房子') || desc.includes('建筑') || desc.includes('house') || desc.includes('building')) {
-                // 绘制房子
-                this.drawHouse(width, height, palette);
-            } else if (desc.includes('树') || desc.includes('植物') || desc.includes('tree') || desc.includes('plant')) {
-                // 绘制树
-                this.drawTree(width, height, palette);
-            } else if (desc.includes('人物') || desc.includes('人') || desc.includes('person') || desc.includes('human')) {
-                // 绘制人物
+            const type = this.getPatternTypeFromDescription(description);
+            if (['house', 'desk', 'plant', 'animal'].includes(type)) {
+                this.drawSimplePattern(type, width, height, colorCount);
+            } else if (desc.includes('人物') || desc.includes('人') || desc.includes('person')) {
                 this.drawPerson(width, height, palette);
+                // drawPerson 使用固定颜色，同步实际使用的调色板
+                this.palette = [
+                    [0, 0, 0], [255, 200, 170], [100, 50, 20], [30, 30, 60],
+                    [255, 255, 255], [180, 20, 20], [20, 20, 20]
+                ];
+                this.generatePalette();
             } else {
-                // 使用随机图案
-                const patterns = ['noise', 'gradient', 'checkerboard', 'circles', 'stripes'];
-                const randomPattern = patterns[Math.floor(Math.random() * patterns.length)];
-                this.drawSimplePattern(randomPattern, width, height, colorCount);
+                const patterns = ['house', 'desk', 'plant', 'animal', 'checkerboard', 'circles', 'stripes'];
+                this.drawSimplePattern(patterns[Math.floor(Math.random() * patterns.length)], width, height, colorCount);
             }
         } catch (error) {
             console.error('绘制图案错误:', error);
@@ -825,11 +1022,11 @@ class AssetSystem {
         progressFill.style.width = '50%';
         
         try {
-            console.log('开始生成AI图案:', { type, size, colorCount });
+            if (DEBUG_ASSET) console.log('开始生成AI图案:', { type, size, colorCount });
             
             const result = AIGenerator.generatePattern(type, size, colorCount);
             
-            console.log('生成结果:', result);
+            if (DEBUG_ASSET) console.log('生成结果:', result);
             
             this.canvas.width = size;
             this.canvas.height = size;
@@ -839,7 +1036,7 @@ class AssetSystem {
                 this.ctx.drawImage(result.canvas, 0, 0);
             } else {
                 // 直接在主画布上绘制简单图案
-                console.log('直接在主画布上绘制图案');
+                if (DEBUG_ASSET) console.log('直接在主画布上绘制图案');
                 this.drawSimplePattern(type, size, colorCount);
             }
             
@@ -883,9 +1080,9 @@ class AssetSystem {
     // 直接在主画布上绘制简单图案
     drawSimplePattern(type, size, colorCount) {
         try {
-            console.log('绘制简单图案:', { type, size, colorCount });
+            if (DEBUG_ASSET) console.log('绘制简单图案:', { type, size, colorCount });
             
-            // 生成调色板
+            // 生成默认调色板（用于 noise/gradient 等）
             const palette = [];
             for (let i = 0; i < colorCount; i++) {
                 const hue = (i / colorCount) * 360;
@@ -893,14 +1090,25 @@ class AssetSystem {
                 const light = 40 + Math.random() * 40;
                 palette.push(this.hslToRgb(hue, sat, light));
             }
+            let usedPalette = palette;
             
             // 清空画布
             this.ctx.fillStyle = '#000';
             this.ctx.fillRect(0, 0, size, size);
             
             switch (type) {
+                case 'house':
+                case 'desk':
+                case 'plant':
+                case 'animal': {
+                    const result = AIGenerator.generatePattern(type, size, colorCount);
+                    if (result && result.canvas) {
+                        this.ctx.drawImage(result.canvas, 0, 0, size, size);
+                        if (result.palette && result.palette.length > 0) usedPalette = result.palette;
+                    }
+                    break;
+                }
                 case 'noise':
-                    // 噪点图案
                     for (let y = 0; y < size; y++) {
                         for (let x = 0; x < size; x++) {
                             const color = palette[Math.floor(Math.random() * palette.length)];
@@ -910,10 +1118,9 @@ class AssetSystem {
                     }
                     break;
                 case 'gradient':
-                    // 渐变图案
                     const gradient = this.ctx.createLinearGradient(0, 0, size, size);
                     palette.forEach((color, i) => {
-                        gradient.addColorStop(i / (palette.length - 1), `rgb(${color[0]}, ${color[1]}, ${color[2]})`);
+                        gradient.addColorStop(i / Math.max(1, palette.length - 1), `rgb(${color[0]}, ${color[1]}, ${color[2]})`);
                     });
                     this.ctx.fillStyle = gradient;
                     this.ctx.fillRect(0, 0, size, size);
@@ -956,12 +1163,13 @@ class AssetSystem {
                     }
                     break;
                 default:
-                    // 随机图案
-                    const patterns = ['noise', 'gradient', 'checkerboard', 'circles', 'stripes'];
-                    const randomPattern = patterns[Math.floor(Math.random() * patterns.length)];
-                    this.drawSimplePattern(randomPattern, size, colorCount);
-                    break;
+                    const patterns = ['house', 'desk', 'plant', 'animal', 'checkerboard', 'circles', 'stripes'];
+                    this.drawSimplePattern(patterns[Math.floor(Math.random() * patterns.length)], size, colorCount);
+                    return; // 递归已处理调色板
             }
+            // 同步调色板供 createDotMatrixAsset 使用
+            this.palette = usedPalette;
+            this.generatePalette();
         } catch (error) {
             console.error('绘制简单图案错误:', error);
             // 绘制错误提示
@@ -1118,7 +1326,7 @@ class AssetSystem {
         
         // 分析图片内容
         const description = this.analyzeImageContent();
-        console.log('AI分析结果:', description);
+        if (DEBUG_ASSET) console.log('AI分析结果:', description);
         
         progressText.textContent = 'AI生成点阵图...';
         progressFill.style.width = '60%';
@@ -1213,6 +1421,18 @@ class AssetSystem {
     createDotMatrixAsset() {
         const width = this.canvas.width;
         const height = this.canvas.height;
+        if (width <= 0 || height <= 0) return;
+        
+        // 确保调色板有效
+        if (!this.palette || this.palette.length === 0) {
+            this.palette = [
+                [0, 0, 0], [255, 255, 255], [255, 0, 0], [0, 255, 0],
+                [0, 0, 255], [255, 255, 0], [255, 0, 255], [0, 255, 255],
+                [128, 128, 128], [192, 192, 192]
+            ];
+            this.generatePalette();
+        }
+        
         const imageData = this.ctx.getImageData(0, 0, width, height);
         
         // 提取像素数据（调色板索引）
@@ -1230,8 +1450,10 @@ class AssetSystem {
             }
         }
         
-        const gridCells = parseInt(document.getElementById('gridCells').value);
-        const pixelsPerCell = parseInt(document.getElementById('pixelsPerCell').value);
+        const gridCellsEl = document.getElementById('gridCells');
+        const pixelsPerCellEl = document.getElementById('pixelsPerCell');
+        const gridCells = gridCellsEl ? Math.max(CONFIG.MIN_GRID_CELLS, Math.min(CONFIG.MAX_GRID_CELLS, parseInt(gridCellsEl.value) || CONFIG.DEFAULT_GRID_CELLS)) : CONFIG.DEFAULT_GRID_CELLS;
+        const pixelsPerCell = pixelsPerCellEl ? Math.max(1, parseInt(pixelsPerCellEl.value) || Math.ceil(CONFIG.DEFAULT_TARGET_SIZE / CONFIG.DEFAULT_GRID_CELLS)) : Math.ceil(CONFIG.DEFAULT_TARGET_SIZE / CONFIG.DEFAULT_GRID_CELLS);
         
         this.currentAsset = new DotMatrixAsset(
             `Asset_${Date.now()}`,
@@ -1276,35 +1498,63 @@ class AssetSystem {
     
     // ==================== 像素编辑 ====================
     handleMouseDown(e) {
-        this.isDrawing = true;
         const rect = this.canvas.getBoundingClientRect();
         const scaleX = this.canvas.width / rect.width;
         const scaleY = this.canvas.height / rect.height;
         const x = Math.floor((e.clientX - rect.left) * scaleX);
         const y = Math.floor((e.clientY - rect.top) * scaleY);
         
+        if (this.currentTool === 'crop') {
+            this.cropStart = { x, y };
+            this.cropEnd = { x, y };
+            this.pendingCropRect = null;
+            this.isDrawing = true;
+            return;
+        }
+        
+        this.isDrawing = true;
         this.lastX = x;
         this.lastY = y;
-        
         this.drawPixel(x, y);
     }
     
     handleMouseMove(e) {
-        if (!this.isDrawing) return;
-        
         const rect = this.canvas.getBoundingClientRect();
         const scaleX = this.canvas.width / rect.width;
         const scaleY = this.canvas.height / rect.height;
         const x = Math.floor((e.clientX - rect.left) * scaleX);
         const y = Math.floor((e.clientY - rect.top) * scaleY);
         
-        this.drawLine(this.lastX, this.lastY, x, y);
+        if (this.currentTool === 'crop' && this.isDrawing && this.cropStart) {
+            this.cropEnd = { x, y };
+            this.renderCropOverlay();
+            return;
+        }
         
+        if (!this.isDrawing) return;
+        
+        this.drawLine(this.lastX, this.lastY, x, y);
         this.lastX = x;
         this.lastY = y;
     }
     
     handleMouseUp() {
+        if (this.currentTool === 'crop' && this.isDrawing && this.cropStart) {
+            const minX = Math.min(this.cropStart.x, this.cropEnd.x);
+            const minY = Math.min(this.cropStart.y, this.cropEnd.y);
+            const w = Math.abs(this.cropEnd.x - this.cropStart.x) + 1;
+            const h = Math.abs(this.cropEnd.y - this.cropStart.y) + 1;
+            if (w >= 4 && h >= 4) {
+                this.pendingCropRect = { x: minX, y: minY, w, h };
+                this.showCropConfirmDialog();
+            }
+            this.isDrawing = false;
+            this.cropStart = null;
+            this.cropEnd = null;
+            this.renderCropOverlay();
+            return;
+        }
+        
         if (this.isDrawing) {
             this.isDrawing = false;
             this.createDotMatrixAsset(); // 更新资产
@@ -1317,30 +1567,62 @@ class AssetSystem {
         
         if (this.currentTool === 'grid') {
             this.drawGridCell(x, y);
-        } else {
+        } else if (this.currentTool === 'eraser') {
+            this.eraseGridCell(x, y);
+        } else if (this.currentTool === 'picker') {
             const imageData = this.ctx.getImageData(0, 0, this.canvas.width, this.canvas.height);
             const idx = (y * this.canvas.width + x) * 4;
-            
-            if (this.currentTool === 'pencil') {
-                const color = this.palette[this.selectedColor];
-                imageData.data[idx] = color[0];
-                imageData.data[idx + 1] = color[1];
-                imageData.data[idx + 2] = color[2];
-                imageData.data[idx + 3] = 255;
-            } else if (this.currentTool === 'eraser') {
-                imageData.data[idx + 3] = 0;
-            } else if (this.currentTool === 'picker') {
-                const r = imageData.data[idx];
-                const g = imageData.data[idx + 1];
-                const b = imageData.data[idx + 2];
+            const r = imageData.data[idx], g = imageData.data[idx + 1], b = imageData.data[idx + 2], a = imageData.data[idx + 3];
+            if (a > 10 && this.palette.length > 0) {
                 const closest = ColorQuantizer.findClosestColor([r, g, b], this.palette);
                 this.selectColor(closest);
-                this.setTool('pencil');
+                this.showNotification(`已取色 #${((1<<24)|(r<<16)|(g<<8)|b).toString(16).slice(1)}`);
             }
-            
-            this.ctx.putImageData(imageData, 0, 0);
-            this.renderGrid();
+            this.setTool('grid');
+        } else if (this.currentTool === 'fill') {
+            this.floodFill(x, y);
         }
+    }
+    
+    // 格子橡皮：擦除整格
+    eraseGridCell(x, y) {
+        const cellSize = this.pixelsPerCell;
+        const gridX = Math.floor(x / cellSize) * cellSize;
+        const gridY = Math.floor(y / cellSize) * cellSize;
+        const imageData = this.ctx.getImageData(0, 0, this.canvas.width, this.canvas.height);
+        for (let py = gridY; py < gridY + cellSize && py < this.canvas.height; py++) {
+            for (let px = gridX; px < gridX + cellSize && px < this.canvas.width; px++) {
+                const idx = (py * this.canvas.width + px) * 4 + 3;
+                imageData.data[idx] = 0;
+            }
+        }
+        this.ctx.putImageData(imageData, 0, 0);
+        this.renderGrid();
+    }
+    
+    floodFill(startX, startY) {
+        const imageData = this.ctx.getImageData(0, 0, this.canvas.width, this.canvas.height);
+        const data = imageData.data;
+        const w = this.canvas.width, h = this.canvas.height;
+        const idx = (startY * w + startX) * 4;
+        const startR = data[idx], startG = data[idx+1], startB = data[idx+2], startA = data[idx+3];
+        const color = this.palette[this.selectedColor] || [0,0,0];
+        const fillR = color[0], fillG = color[1], fillB = color[2];
+        const same = (i) => data[i]===startR && data[i+1]===startG && data[i+2]===startB && data[i+3]===startA;
+        const stack = [[startX, startY]];
+        let count = 0;
+        const maxFill = w * h;
+        while (stack.length > 0 && count < maxFill) {
+            const [x, y] = stack.pop();
+            if (x < 0 || x >= w || y < 0 || y >= h) continue;
+            const i = (y * w + x) * 4;
+            if (!same(i)) continue;
+            data[i]=fillR; data[i+1]=fillG; data[i+2]=fillB; data[i+3]=255;
+            count++;
+            stack.push([x+1,y],[x-1,y],[x,y+1],[x,y-1]);
+        }
+        this.ctx.putImageData(imageData, 0, 0);
+        this.renderGrid();
     }
     
     drawGridCell(x, y) {
@@ -1381,39 +1663,157 @@ class AssetSystem {
     
     // ==================== 网格渲染 ====================
     renderGrid() {
-        if (!this.gridCells || !this.pixelsPerCell) return;
+        const overlay = document.getElementById('gridOverlay');
+        if (!overlay || !this.gridCells || !this.pixelsPerCell) return;
         
-        const ctx = this.ctx;
         const width = this.canvas.width;
         const height = this.canvas.height;
         const cellSize = this.pixelsPerCell;
+        const rect = this.canvas.getBoundingClientRect();
         
-        ctx.save();
+        overlay.width = width;
+        overlay.height = height;
+        overlay.style.width = rect.width + 'px';
+        overlay.style.height = rect.height + 'px';
         
-        // 绘制主网格线
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+        const ctx = overlay.getContext('2d');
+        ctx.clearRect(0, 0, width, height);
+        
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
         ctx.lineWidth = 1;
-        
         for (let x = 0; x <= width; x += cellSize) {
             ctx.beginPath();
             ctx.moveTo(x, 0);
             ctx.lineTo(x, height);
             ctx.stroke();
         }
-        
         for (let y = 0; y <= height; y += cellSize) {
             ctx.beginPath();
             ctx.moveTo(0, y);
             ctx.lineTo(width, y);
             ctx.stroke();
         }
-        
-        // 外边框
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
+        ctx.lineWidth = 2;
+        for (let x = 0; x <= width; x += cellSize * 5) {
+            ctx.beginPath();
+            ctx.moveTo(x, 0);
+            ctx.lineTo(x, height);
+            ctx.stroke();
+        }
+        for (let y = 0; y <= height; y += cellSize * 5) {
+            ctx.beginPath();
+            ctx.moveTo(0, y);
+            ctx.lineTo(width, y);
+            ctx.stroke();
+        }
         ctx.strokeStyle = 'rgba(233, 69, 96, 0.5)';
         ctx.lineWidth = 2;
         ctx.strokeRect(0, 0, width, height);
-        
-        ctx.restore();
+    }
+    
+    // 绘制裁剪选区
+    renderCropOverlay() {
+        const overlay = document.getElementById('cropOverlay');
+        if (!overlay) return;
+        if (!this.cropStart || !this.cropEnd) {
+            overlay.style.display = 'none';
+            return;
+        }
+        overlay.style.display = 'block';
+        const rect = this.canvas.getBoundingClientRect();
+        overlay.width = this.canvas.width;
+        overlay.height = this.canvas.height;
+        overlay.style.width = rect.width + 'px';
+        overlay.style.height = rect.height + 'px';
+        const ctx = overlay.getContext('2d');
+        ctx.clearRect(0, 0, overlay.width, overlay.height);
+        const minX = Math.min(this.cropStart.x, this.cropEnd.x);
+        const minY = Math.min(this.cropStart.y, this.cropEnd.y);
+        const w = Math.abs(this.cropEnd.x - this.cropStart.x) + 1;
+        const h = Math.abs(this.cropEnd.y - this.cropStart.y) + 1;
+        ctx.strokeStyle = '#e94560';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([6, 4]);
+        ctx.strokeRect(minX, minY, w, h);
+        ctx.fillStyle = 'rgba(233, 69, 96, 0.15)';
+        ctx.fillRect(minX, minY, w, h);
+    }
+    
+    startCropMode() {
+        this.setTool('crop');
+        this.cropStart = null;
+        this.cropEnd = null;
+        this.pendingCropRect = null;
+        const ov = document.getElementById('cropOverlay');
+        if (ov) ov.style.display = 'none';
+        this.canvas.style.cursor = 'crosshair';
+        this.showNotification('拖拽选择裁剪区域');
+    }
+    
+    showCropConfirmDialog() {
+        const d = document.getElementById('cropConfirmDialog');
+        if (d) {
+            d.style.display = 'flex';
+        }
+    }
+    
+    cancelCrop() {
+        const d = document.getElementById('cropConfirmDialog');
+        if (d) d.style.display = 'none';
+        this.pendingCropRect = null;
+        const ov = document.getElementById('cropOverlay');
+        if (ov) ov.style.display = 'none';
+        this.setTool('pencil');
+    }
+    
+    applyCrop(overwrite) {
+        document.getElementById('cropConfirmDialog').style.display = 'none';
+        const r = this.pendingCropRect;
+        if (!r || r.w < 4 || r.h < 4) {
+            this.pendingCropRect = null;
+            this.setTool('pencil');
+            return;
+        }
+        const temp = document.createElement('canvas');
+        temp.width = r.w;
+        temp.height = r.h;
+        const tctx = temp.getContext('2d');
+        tctx.drawImage(this.canvas, r.x, r.y, r.w, r.h, 0, 0, r.w, r.h);
+        if (overwrite) {
+            this.saveHistory();
+            this.canvas.width = r.w;
+            this.canvas.height = r.h;
+            this.ctx.drawImage(temp, 0, 0);
+            this.createDotMatrixAsset();
+            this.renderGrid();
+            this.saveHistory();
+            this.updateCanvasInfo();
+            this.applyZoom();
+            this.setTool('pencil');
+            this.showNotification('裁剪完成，已覆盖');
+        } else {
+            const dataUrl = temp.toDataURL('image/png');
+            const img = new Image();
+            img.onload = () => {
+                this.saveHistory();
+                this.canvas.width = img.width;
+                this.canvas.height = img.height;
+                this.ctx.drawImage(img, 0, 0);
+                this.createDotMatrixAsset();
+                this.renderGrid();
+                this.saveHistory();
+                this.updateCanvasInfo();
+                this.applyZoom();
+                this.setTool('pencil');
+                this.saveToLibrary();
+                this.showNotification('裁剪完成，已另存到资产库');
+            };
+            img.src = dataUrl;
+        }
+        this.pendingCropRect = null;
+        const ov = document.getElementById('cropOverlay');
+        if (ov) ov.style.display = 'none';
     }
     
     // ==================== 工具 ====================
@@ -1422,7 +1822,7 @@ class AssetSystem {
         document.querySelectorAll('.tool-btn').forEach(btn => btn.classList.remove('active'));
         document.getElementById(`tool-${tool}`)?.classList.add('active');
         
-        const cursors = { pencil: 'crosshair', eraser: 'not-allowed', picker: 'copy', fill: 'pointer', grid: 'cell' };
+        const cursors = { eraser: 'cell', picker: 'copy', fill: 'pointer', grid: 'cell', crop: 'crosshair' };
         this.canvas.style.cursor = cursors[tool] || 'default';
     }
     
@@ -1496,6 +1896,7 @@ class AssetSystem {
         this.canvas.style.width = (this.canvas.width * zoom) + 'px';
         this.canvas.style.height = (this.canvas.height * zoom) + 'px';
         this.updateCanvasInfo();
+        this.renderGrid();
     }
     
     // ==================== 画布操作 ====================
@@ -1527,7 +1928,7 @@ class AssetSystem {
         this.saveHistory();
         
         // 清除画布
-        this.ctx.fillStyle = '#1e1e2d';
+        this.ctx.fillStyle = '#2d2d44';
         this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
         
         // 重新绘制网格
@@ -1560,9 +1961,9 @@ class AssetSystem {
         }
         
         switch (e.key) {
-            case 'b': this.setTool('pencil'); break;
             case 'e': this.setTool('eraser'); break;
             case 'i': this.setTool('picker'); break;
+            case 'g': this.setTool('grid'); break;
             case 'f': this.setTool('fill'); break;
         }
     }
@@ -1619,16 +2020,14 @@ class AssetSystem {
     
     addAssetToLibrary(asset) {
         const libraryContent = document.getElementById('libraryContent');
-        
-        let categoryDiv = libraryContent.querySelector('.asset-category');
-        if (!categoryDiv) {
-            categoryDiv = document.createElement('div');
+        let grid = libraryContent?.querySelector('[data-category="dotmatrix"]');
+        if (!grid) {
+            const categoryDiv = document.createElement('div');
             categoryDiv.className = 'asset-category';
-            categoryDiv.innerHTML = '<div class="asset-category-title">🎨 点阵资产</div><div class="asset-grid"></div>';
-            libraryContent.appendChild(categoryDiv);
+            categoryDiv.innerHTML = '<div class="asset-category-title">🔴 点阵资产</div><div class="asset-grid" data-category="dotmatrix"></div>';
+            libraryContent?.appendChild(categoryDiv);
+            grid = categoryDiv.querySelector('.asset-grid');
         }
-        
-        const grid = categoryDiv.querySelector('.asset-grid');
         
         const assetDiv = document.createElement('div');
         assetDiv.className = 'asset-item';

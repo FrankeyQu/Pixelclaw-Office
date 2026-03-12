@@ -1,0 +1,25 @@
+{
+  "name": "销售部",
+  "description": "销售团队办公场景，含接待区与会议室",
+  "canvas": { "width": 1000, "height": 750, "gridSize": 20 },
+  "elements": [
+    { "assetKey": "floorWood", "x": 0, "y": 0, "pixelBlocks": { "w": 50, "h": 38 }, "name": "木地板" },
+    { "assetKey": "receptionDesk", "x": 400, "y": 80, "name": "前台" },
+    { "assetKey": "receptionist", "x": 440, "y": 100, "name": "前台" },
+    { "assetKey": "desk", "x": 120, "y": 220, "name": "工位1" },
+    { "assetKey": "chair", "x": 140, "y": 280, "name": "椅子" },
+    { "assetKey": "desk", "x": 280, "y": 220, "name": "工位2" },
+    { "assetKey": "chair", "x": 300, "y": 280, "name": "椅子" },
+    { "assetKey": "desk", "x": 120, "y": 420, "name": "工位3" },
+    { "assetKey": "chair", "x": 140, "y": 480, "name": "椅子" },
+    { "assetKey": "desk", "x": 280, "y": 420, "name": "工位4" },
+    { "assetKey": "chair", "x": 300, "y": 480, "name": "椅子" },
+    { "assetKey": "meetingTable", "x": 520, "y": 300, "pixelBlocks": { "w": 6, "h": 4 }, "name": "会议桌" },
+    { "assetKey": "chair", "x": 540, "y": 260, "name": "椅子" },
+    { "assetKey": "chair", "x": 620, "y": 340, "name": "椅子" },
+    { "assetKey": "glassWall", "x": 480, "y": 100, "pixelBlocks": { "w": 4, "h": 8 }, "name": "玻璃隔断" },
+    { "assetKey": "plant", "x": 800, "y": 120, "name": "绿植" },
+    { "assetKey": "sofa", "x": 760, "y": 400, "name": "休息区" },
+    { "assetKey": "coffeeMachine", "x": 840, "y": 600, "name": "咖啡机" }
+  ]
+}
