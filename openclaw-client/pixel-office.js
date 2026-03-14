@@ -25,6 +25,35 @@ const CONFIG = {
     }
 };
 
+// ==================== 数据面板 - DataProvider 抽象 ====================
+// 对接真实 API 时：创建 OpenClawDataProvider 实现 fetchUsageData，并赋值给 pixelOffice.dataProvider
+
+/**
+ * 数据提供者接口：实现 fetchUsageData() 返回 { tokenUsage, cost, isLive }
+ * - tokenUsage: 字符串，如 '12.4K'
+ * - cost: 字符串，如 '¥0.02'
+ * - isLive: 是否来自真实接口（影响 UI 提示文案）
+ */
+class MockDataProvider {
+    async fetchUsageData() {
+        return {
+            tokenUsage: '12.4K',
+            cost: '¥0.02',
+            isLive: false
+        };
+    }
+}
+
+// 示例：接入 OpenClaw 时替换为真实实现
+// class OpenClawDataProvider {
+//     constructor(apiBase) { this.apiBase = apiBase; }
+//     async fetchUsageData() {
+//         const res = await fetch(`${this.apiBase}/usage`);
+//         const data = await res.json();
+//         return { tokenUsage: data.tokens, cost: data.cost, isLive: true };
+//     }
+// }
+
 // ==================== Agent 类 ====================
 class Agent {
     constructor(id, x, y, name = `Agent ${id}`) {
@@ -90,6 +119,10 @@ class Agent {
             case 'talking':
                 this.updateTalking();
                 break;
+            case 'error':
+            case 'waiting':
+                // error/waiting 保持静止，不做自动状态切换
+                break;
         }
 
         this.bobOffset = Math.sin(this.animationFrame * 0.3) * 2;
@@ -152,7 +185,10 @@ class Agent {
     }
 
     getStatusText() {
-        const statusMap = { idle: '待机', walking: '走动', working: '工作', talking: '对话' };
+        const statusMap = {
+            idle: '待机', walking: '走动', working: '工作', talking: '对话',
+            error: '错误', waiting: '等待'
+        };
         return statusMap[this.status] || this.status;
     }
 
@@ -195,6 +231,14 @@ class PixelOffice {
         // 自定义地图（来自地图编辑器）
         this.currentMapImage = null;
 
+        // 任务与数据
+        this.tasks = [];
+        this.panelTab = 'overview';
+        this.nextTaskId = 1;
+
+        // 数据面板：MockDataProvider 可替换为 OpenClawDataProvider
+        this.dataProvider = new MockDataProvider();
+
         this.init();
     }
 
@@ -236,12 +280,15 @@ class PixelOffice {
         this.hideLoading();
         this.startRenderLoop();
         this.updateUI();
+        this.renderTasks();
+        this.updateDataTab();
     }
 
     bindEvents() {
         this.agentListViewMode = localStorage.getItem('agentListViewMode') || 'list';
         this.projectName = localStorage.getItem('pixelOfficeProjectName') || 'Pixelclaw Office';
         this.sceneName = localStorage.getItem('pixelOfficeSceneName') || '亚信数字-销售部';
+        this.loadTasks();
         this.updatePanelHeader();
         document.querySelectorAll('.agent-list-view-mode button').forEach(btn => {
             btn.classList.toggle('active', btn.dataset.mode === this.agentListViewMode);
@@ -811,12 +858,14 @@ class PixelOffice {
             this.ctx.stroke();
         }
 
-        // 状态指示器
+        // 状态指示器（含 error/waiting 增强可视化）
         const statusColors = {
             idle: '#42a5f5',
             walking: '#ffa726',
             working: '#00d9a3',
-            talking: '#e94560'
+            talking: '#e94560',
+            error: '#f44336',
+            waiting: '#9e9e9e'
         };
 
         this.ctx.fillStyle = statusColors[agent.status] || '#888';
@@ -1145,7 +1194,10 @@ class PixelOffice {
     }
 
     getStatusText(status) {
-        const statusMap = { idle: '待机', walking: '走动', working: '工作', talking: '对话' };
+        const statusMap = {
+            idle: '待机', walking: '走动', working: '工作', talking: '对话',
+            error: '错误', waiting: '等待'
+        };
         return statusMap[status] || status;
     }
 
@@ -1362,6 +1414,176 @@ class PixelOffice {
 
     toggleGrid() {
         this.showGrid = !this.showGrid;
+    }
+
+    // ==================== 面板 Tab ====================
+
+    switchPanelTab(tab) {
+        this.panelTab = tab;
+        document.querySelectorAll('.panel-tabs button').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.tab === tab);
+        });
+        document.querySelectorAll('.panel-tab-content').forEach(el => {
+            el.classList.toggle('active', el.id === `tab-${tab}`);
+        });
+        if (tab === 'tasks') this.renderTasks();
+        if (tab === 'data') this.updateDataTab();
+    }
+
+    // ==================== 任务面板 ====================
+
+    loadTasks() {
+        try {
+            const raw = localStorage.getItem('pixelOfficeTasks');
+            if (raw) {
+                const data = JSON.parse(raw);
+                this.tasks = data.tasks || [];
+                const maxId = this.tasks.length ? Math.max(...this.tasks.map(t => t.id || 0)) : 0;
+                this.nextTaskId = Math.max(1, maxId + 1);
+            }
+        } catch (e) { console.warn('加载任务失败', e); }
+    }
+
+    saveTasks() {
+        localStorage.setItem('pixelOfficeTasks', JSON.stringify({ tasks: this.tasks }));
+    }
+
+    addTask() {
+        const title = prompt('任务标题');
+        if (!title || !title.trim()) return;
+        const task = {
+            id: this.nextTaskId++,
+            title: title.trim(),
+            status: 'todo',
+            agentId: null,
+            needInput: false,
+            createdAt: Date.now()
+        };
+        this.tasks.push(task);
+        this.saveTasks();
+        this.renderTasks();
+        this.showNotification('任务已添加');
+    }
+
+    setTaskStatus(taskId, status) {
+        const task = this.tasks.find(t => t.id === taskId);
+        if (!task) return;
+        task.status = status;
+        this.saveTasks();
+        this.renderTasks();
+    }
+
+    setTaskNeedInput(taskId, needInput) {
+        const task = this.tasks.find(t => t.id === taskId);
+        if (!task) return;
+        task.needInput = !!needInput;
+        this.saveTasks();
+        this.renderTasks();
+    }
+
+    linkTaskToAgent(taskId) {
+        if (!this.selectedAgent) {
+            this.showNotification('请先选择一名 Agent');
+            return;
+        }
+        const task = this.tasks.find(t => t.id === taskId);
+        if (!task) return;
+        task.agentId = this.selectedAgent.id;
+        this.saveTasks();
+        this.renderTasks();
+        this.showNotification(`任务已关联到 ${this.selectedAgent.name}`);
+    }
+
+    focusAgentForTask(agentId) {
+        const agent = this.agents.find(a => a.id === agentId);
+        if (agent) {
+            this.selectAgent(agent);
+            this.switchPanelTab('overview');
+            this.openConfigPanel();
+        }
+    }
+
+    deleteTask(taskId) {
+        this.tasks = this.tasks.filter(t => t.id !== taskId);
+        this.saveTasks();
+        this.renderTasks();
+    }
+
+    renderTasks() {
+        const lists = {
+            todo: document.getElementById('taskListTodo'),
+            inprogress: document.getElementById('taskListInProgress'),
+            needinput: document.getElementById('taskListNeedInput'),
+            done: document.getElementById('taskListDone')
+        };
+        if (!lists.todo) return;
+
+        ['todo', 'inprogress', 'needinput', 'done'].forEach(status => {
+            lists[status].innerHTML = '';
+        });
+
+        this.tasks.forEach(task => {
+            const listKey = task.status in lists ? task.status : 'todo';
+            const list = lists[listKey];
+            if (!list) return;
+
+            const agentName = task.agentId ? (this.agents.find(a => a.id === task.agentId)?.name || `#${task.agentId}`) : '';
+            const item = document.createElement('div');
+            item.className = 'task-item';
+            item.dataset.taskId = task.id;
+            item.dataset.needinput = task.needInput ? 'true' : 'false';
+            item.title = task.title + (agentName ? ` · ${agentName}` : '');
+            item.innerHTML = `
+                <span class="task-item-title">${task.title}</span>
+                <span class="task-item-agent">${agentName || '-'}</span>
+                <div class="task-item-actions">
+                    ${task.status !== 'done' ? `<button type="button" title="下一状态" onclick="pixelOffice.cycleTaskStatus(${task.id})">→</button>` : ''}
+                    <button type="button" title="需确认" onclick="pixelOffice.setTaskNeedInput(${task.id}, ${!task.needInput})">${task.needInput ? '✓' : '?'}</button>
+                    <button type="button" title="关联Agent" onclick="pixelOffice.linkTaskToAgent(${task.id})">@</button>
+                    <button type="button" title="删除" onclick="event.stopPropagation(); pixelOffice.deleteTask(${task.id})">×</button>
+                </div>
+            `;
+            item.onclick = (e) => {
+                if (e.target.closest('.task-item-actions')) return;
+                if (task.agentId) this.focusAgentForTask(task.agentId);
+            };
+            list.appendChild(item);
+        });
+    }
+
+    cycleTaskStatus(taskId) {
+        const task = this.tasks.find(t => t.id === taskId);
+        if (!task) return;
+        const order = ['todo', 'inprogress', 'needinput', 'done'];
+        let idx = order.indexOf(task.status);
+        if (idx < 0) idx = 0;
+        const next = order[Math.min(idx + 1, order.length - 1)];
+        this.setTaskStatus(taskId, next);
+    }
+
+    // ==================== 数据面板 ====================
+
+    async updateDataTab() {
+        const tokenEl = document.getElementById('dataTokenUsage');
+        const costEl = document.getElementById('dataCost');
+        const hintEl = document.getElementById('dataPanelHint');
+        const tokenLabel = document.getElementById('dataTokenLabel');
+        const costLabel = document.getElementById('dataCostLabel');
+
+        if (tokenEl) tokenEl.textContent = '--';
+        if (costEl) costEl.textContent = '--';
+
+        try {
+            const data = await this.dataProvider.fetchUsageData();
+            if (tokenEl) tokenEl.textContent = data.tokenUsage ?? '--';
+            if (costEl) costEl.textContent = data.cost ?? '--';
+            if (hintEl) hintEl.textContent = data.isLive ? '数据来自 OpenClaw' : '接入 OpenClaw 后可显示真实数据';
+            if (tokenLabel) tokenLabel.textContent = data.isLive ? 'Token 用量' : 'Token 用量（示例）';
+            if (costLabel) costLabel.textContent = data.isLive ? '估算成本' : '估算成本（示例）';
+        } catch (e) {
+            console.warn('数据面板加载失败', e);
+            if (hintEl) hintEl.textContent = '加载失败，请检查网络或 API 配置';
+        }
     }
 }
 

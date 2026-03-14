@@ -314,6 +314,8 @@
         .agent-list[data-mode="icons"] .agent-item[data-status="walking"] .agent-avatar::after { background: #ffa726; }
         .agent-list[data-mode="icons"] .agent-item[data-status="working"] .agent-avatar::after { background: #00d9a3; }
         .agent-list[data-mode="icons"] .agent-item[data-status="talking"] .agent-avatar::after { background: #e94560; }
+        .agent-list[data-mode="icons"] .agent-item[data-status="waiting"] .agent-avatar::after { background: #9e9e9e; }
+        .agent-list[data-mode="icons"] .agent-item[data-status="error"] .agent-avatar::after { background: #f44336; }
 
         .agent-list[data-mode="icons"] .agent-avatar {
             position: relative;
@@ -387,6 +389,84 @@
         .status-walking { background: #ffa726; }
         .status-working { background: #00d9a3; }
         .status-talking { background: #e94560; }
+        .status-waiting { background: #9e9e9e; }
+        .status-error { background: #f44336; }
+
+        /* 面板 Tab */
+        .panel-tabs {
+            display: flex;
+            gap: 4px;
+            margin-bottom: 16px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .panel-tabs button {
+            padding: 8px 14px;
+            font-size: 13px;
+            background: transparent;
+            border: none;
+            color: #888;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            margin-bottom: -1px;
+            transition: all 0.2s;
+        }
+        .panel-tabs button:hover {
+            color: #fff;
+        }
+        .panel-tabs button.active {
+            color: #e94560;
+            border-bottom-color: #e94560;
+        }
+        .panel-tab-content {
+            display: none;
+        }
+        .panel-tab-content.active {
+            display: block;
+        }
+
+        /* 任务看板 */
+        .task-kanban {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            max-height: 280px;
+            overflow-y: auto;
+        }
+        .task-column {
+            background: rgba(255,255,255,0.03);
+            border-radius: 8px;
+            padding: 10px;
+        }
+        .task-column-header {
+            font-size: 12px;
+            color: #aaa;
+            margin-bottom: 8px;
+        }
+        .task-column-list {
+            min-height: 40px;
+        }
+        .task-item {
+            padding: 8px 10px;
+            background: rgba(255,255,255,0.06);
+            border-radius: 6px;
+            margin-bottom: 6px;
+            font-size: 12px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 6px;
+        }
+        .task-item:hover {
+            background: rgba(255,255,255,0.1);
+        }
+        .task-item[data-needinput="true"] {
+            border-left: 3px solid #ffa726;
+        }
+        .task-item-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+        .task-item-agent { font-size: 10px; color: #888; }
+        .task-item-actions { display: flex; gap: 4px; }
+        .task-item-actions button { padding: 2px 6px; font-size: 10px; background: rgba(255,255,255,0.1); border: none; border-radius: 4px; color: #fff; cursor: pointer; }
 
         /* 统计信息 */
         .stats {
@@ -729,6 +809,14 @@
                     onkeydown="pixelOffice.handleSceneNameKeydown(event)">
             </div>
 
+            <div class="panel-tabs">
+                <button type="button" class="active" data-tab="overview" onclick="pixelOffice.switchPanelTab('overview')">总览</button>
+                <button type="button" data-tab="tasks" onclick="pixelOffice.switchPanelTab('tasks')">任务</button>
+                <button type="button" data-tab="data" onclick="pixelOffice.switchPanelTab('data')">数据</button>
+            </div>
+
+            <!-- Tab: 总览 -->
+            <div id="tab-overview" class="panel-tab-content active">
             <!-- 统计信息 -->
             <div class="stats">
                 <div class="stat-card">
@@ -809,6 +897,54 @@
                     恢复默认布局
                 </button>
             </div>
+            </div>
+            <!-- /Tab: 总览 -->
+
+            <!-- Tab: 任务 -->
+            <div id="tab-tasks" class="panel-tab-content">
+                <div class="control-group">
+                    <h3>任务看板</h3>
+                    <div class="task-kanban">
+                        <div class="task-column" data-status="todo">
+                            <div class="task-column-header">待办</div>
+                            <div class="task-column-list" id="taskListTodo"></div>
+                        </div>
+                        <div class="task-column" data-status="inprogress">
+                            <div class="task-column-header">进行中</div>
+                            <div class="task-column-list" id="taskListInProgress"></div>
+                        </div>
+                        <div class="task-column" data-status="needinput">
+                            <div class="task-column-header">需确认</div>
+                            <div class="task-column-list" id="taskListNeedInput"></div>
+                        </div>
+                        <div class="task-column" data-status="done">
+                            <div class="task-column-header">完成</div>
+                            <div class="task-column-list" id="taskListDone"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="control-group">
+                    <button class="btn btn-primary" onclick="pixelOffice.addTask()">+ 添加任务</button>
+                </div>
+            </div>
+            <!-- /Tab: 任务 -->
+
+            <!-- Tab: 数据 -->
+            <div id="tab-data" class="panel-tab-content">
+                <div class="control-group">
+                    <h3>用量概览</h3>
+                    <div class="stat-card" style="margin-bottom:12px;">
+                        <div class="stat-value" id="dataTokenUsage">--</div>
+                        <div class="stat-label" id="dataTokenLabel">Token 用量（示例）</div>
+                    </div>
+                    <div class="stat-card" style="margin-bottom:12px;">
+                        <div class="stat-value" id="dataCost">--</div>
+                        <div class="stat-label" id="dataCostLabel">估算成本（示例）</div>
+                    </div>
+                    <div id="dataPanelHint" style="font-size:11px;color:#666;margin-top:8px;">接入 OpenClaw 后可显示真实数据</div>
+                </div>
+            </div>
+            <!-- /Tab: 数据 -->
         </div>
     </div>
 
@@ -839,10 +975,12 @@
                 <div class="form-group">
                     <label>当前状态</label>
                     <select id="agentStatus">
-                        <option value="idle">待机 (Idle)</option>
-                        <option value="walking">走动 (Walking)</option>
-                        <option value="working">工作 (Working)</option>
-                        <option value="talking">对话 (Talking)</option>
+                        <option value="idle">待机</option>
+                        <option value="walking">走动</option>
+                        <option value="working">工作</option>
+                        <option value="talking">对话</option>
+                        <option value="waiting">等待</option>
+                        <option value="error">错误</option>
                     </select>
                 </div>
                 <div class="form-group">

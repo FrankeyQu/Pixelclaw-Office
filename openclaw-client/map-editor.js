@@ -227,6 +227,12 @@ class MapEditor {
         this.cropRect = null;  // 元素局部坐标 { x, y, w, h }
         this.cropDragState = { active: false, handle: -1, startX: 0, startY: 0, startRect: null };
 
+        // 区域标签（会议室、研发区等）
+        this.regionLabels = [];
+        this.selectedLabel = null;
+        this.nextLabelId = 1;
+        this.labelDragState = { isDragging: false, label: null, offsetX: 0, offsetY: 0 };
+
         this.init();
     }
 
@@ -287,6 +293,9 @@ class MapEditor {
     saveState() {
         if (this.isRestoring) return;
         const state = {
+            regionLabels: this.regionLabels.map(l => ({ ...l })),
+            nextLabelId: this.nextLabelId,
+            selectedLabelId: this.selectedLabel ? this.selectedLabel.id : null,
             elements: this.elements.map(el => ({
                 id: el.id,
                 type: el.type,
@@ -313,6 +322,9 @@ class MapEditor {
         this.isRestoring = true;
         this.elements = [];
         this.selectedElement = null;
+        this.regionLabels = (state.regionLabels || []).map(l => ({ ...l }));
+        this.nextLabelId = state.nextLabelId || 1;
+        this.selectedLabel = this.regionLabels.find(l => l.id === state.selectedLabelId) || null;
         this.nextId = state.nextId || 1;
         const selId = state.selectedId;
 
@@ -380,6 +392,9 @@ class MapEditor {
 
     getCurrentState() {
         return {
+            regionLabels: this.regionLabels.map(l => ({ ...l })),
+            nextLabelId: this.nextLabelId,
+            selectedLabelId: this.selectedLabel ? this.selectedLabel.id : null,
             elements: this.elements.map(el => ({
                 id: el.id,
                 type: el.type,
@@ -435,6 +450,7 @@ class MapEditor {
         if (this.drawLayer) ctx.drawImage(this.drawLayer, 0, 0);
         const sorted = [...this.elements].sort((a, b) => (a.properties.layer || 1) - (b.properties.layer || 1));
         sorted.forEach(el => this.renderElementTo(ctx, el));
+        this.renderRegionLabelsTo(ctx);
         return c.toDataURL('image/png');
     }
 
@@ -497,6 +513,7 @@ class MapEditor {
         return {
             canvas: { width: CONFIG.CANVAS_WIDTH, height: CONFIG.CANVAS_HEIGHT, gridSize: CONFIG.GRID_SIZE },
             drawLayer: drawLayerData,
+            regionLabels: this.regionLabels.map(l => ({ ...l })),
             elements: this.elements.map(el => ({
                 assetKey: el.assetKey || el.type,
                 id: el.id,
@@ -1055,6 +1072,13 @@ class MapEditor {
             }
         }
 
+        // 区域标签工具
+        if (this.currentTool === 'label') {
+            this.saveState();
+            this.addRegionLabel(x, y);
+            return;
+        }
+
         // 像素绘制工具：格子笔、格子橡皮、取色、填充
         const pixelTools = ['grid', 'gridEraser', 'picker', 'fill'];
         if (pixelTools.includes(this.currentTool)) {
@@ -1073,9 +1097,29 @@ class MapEditor {
             return;
         }
 
+        // 选择/移动工具：优先检查区域标签，支持拖拽移动
+        if (this.currentTool === 'select' || this.currentTool === 'move') {
+            const label = this.getLabelAt(x, y);
+            if (label) {
+                this.selectedLabel = label;
+                this.selectedElement = null;
+                this.saveState();
+                this.labelDragState = {
+                    isDragging: true,
+                    label,
+                    offsetX: x - label.x,
+                    offsetY: y - label.y
+                };
+                this.updatePropertiesPanel();
+                this.updateUI();
+                return;
+            }
+        }
+
         const element = this.getElementAt(x, y);
 
         if (element) {
+            this.selectedLabel = null;
             this.selectElement(element);
             
             if (!this.collisionEditMode && !e.ctrlKey && (this.currentTool === 'move' || this.currentTool === 'select') && !element.properties.locked) {
@@ -1092,6 +1136,7 @@ class MapEditor {
             }
         } else {
             this.selectedElement = null;
+            this.selectedLabel = null;
             this.updatePropertiesPanel();
         }
 
@@ -1185,6 +1230,18 @@ class MapEditor {
             el.y = Math.round(newY / CONFIG.GRID_SIZE) * CONFIG.GRID_SIZE;
             el.updatePixelBlocks(bw, bh);
             this.updatePropertiesPanel();
+        } else if (this.labelDragState.isDragging && this.labelDragState.label) {
+            const lbl = this.labelDragState.label;
+            const pad = 6;
+            this.ctx.font = 'bold 14px "Microsoft YaHei", sans-serif';
+            const w = this.ctx.measureText(lbl.text).width + pad * 2;
+            const minX = 0;
+            const minY = 0;
+            const maxX = Math.max(0, this.canvas.width - w);
+            const maxY = Math.max(0, this.canvas.height - 22);
+            lbl.x = Math.round(Math.max(minX, Math.min(maxX, x - this.labelDragState.offsetX)));
+            lbl.y = Math.round(Math.max(minY, Math.min(maxY, y - this.labelDragState.offsetY)));
+            this.updatePropertiesPanel();
         } else if (this.dragState.isDragging && this.dragState.element) {
             const element = this.dragState.element;
             element.x = x - this.dragState.offsetX;
@@ -1238,6 +1295,7 @@ class MapEditor {
         const cropHandle = this.cropMode ? this.getCropHandleAt(x, y) : -1;
         const hoverHandle = this.getResizeHandleAt(x, y);
         const hoverLock = this.getLockButtonHit(x, y);
+        const hoverLabel = this.getLabelAt(x, y);
         const hoverElement = this.getElementAt(x, y);
         if (cropHandle >= 0) {
             const cropCursors = ['nwse-resize', 'nesw-resize', 'nwse-resize', 'nesw-resize', 'ns-resize', 'ew-resize', 'ns-resize', 'ew-resize'];
@@ -1263,6 +1321,8 @@ class MapEditor {
             this.canvas.style.cursor = 'crosshair';
         } else if (this.currentTool === 'fill') {
             this.canvas.style.cursor = 'crosshair';
+        } else if (hoverLabel && (this.currentTool === 'select' || this.currentTool === 'move')) {
+            this.canvas.style.cursor = 'move';
         } else if (hoverElement) {
             this.canvas.style.cursor = (hoverElement.properties.locked && this.currentTool === 'move') ? 'not-allowed' : (this.currentTool === 'move' ? 'move' : 'pointer');
         } else {
@@ -1293,6 +1353,13 @@ class MapEditor {
                 startW: 0,
                 startH: 0
             };
+            this.updatePropertiesPanel();
+        }
+        if (this.labelDragState.isDragging && this.labelDragState.label) {
+            const lbl = this.labelDragState.label;
+            lbl.x = Math.round(lbl.x / CONFIG.GRID_SIZE) * CONFIG.GRID_SIZE;
+            lbl.y = Math.round(lbl.y / CONFIG.GRID_SIZE) * CONFIG.GRID_SIZE;
+            this.labelDragState = { isDragging: false, label: null, offsetX: 0, offsetY: 0 };
             this.updatePropertiesPanel();
         }
         if (this.dragState.isDragging && this.dragState.element) {
@@ -1756,9 +1823,99 @@ class MapEditor {
             this.renderSelection(this.selectedElement);
         }
 
+        // 渲染区域标签
+        this.renderRegionLabels();
+
         // 裁剪模式叠加层
         if (this.cropMode) {
             this.renderCropOverlay();
+        }
+    }
+
+    renderRegionLabels() {
+        this.regionLabels.forEach(lbl => {
+            const isSelected = this.selectedLabel && this.selectedLabel.id === lbl.id;
+            this.ctx.save();
+            this.ctx.font = 'bold 14px "Microsoft YaHei", sans-serif';
+            this.ctx.textAlign = 'left';
+            this.ctx.textBaseline = 'top';
+            const pad = 6;
+            const m = this.ctx.measureText(lbl.text);
+            const w = m.width + pad * 2;
+            const h = 22;
+            this.ctx.fillStyle = isSelected ? 'rgba(233,69,96,0.9)' : 'rgba(0,0,0,0.75)';
+            this.ctx.fillRect(lbl.x, lbl.y, w, h);
+            this.ctx.strokeStyle = isSelected ? '#e94560' : 'rgba(255,255,255,0.4)';
+            this.ctx.strokeRect(lbl.x, lbl.y, w, h);
+            this.ctx.fillStyle = '#fff';
+            this.ctx.fillText(lbl.text, lbl.x + pad, lbl.y + 4);
+            this.ctx.restore();
+        });
+    }
+
+    renderRegionLabelsTo(ctx) {
+        this.regionLabels.forEach(lbl => {
+            ctx.save();
+            ctx.font = 'bold 14px "Microsoft YaHei", sans-serif';
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'top';
+            const pad = 6;
+            const m = ctx.measureText(lbl.text);
+            const w = m.width + pad * 2;
+            ctx.fillStyle = 'rgba(0,0,0,0.75)';
+            ctx.fillRect(lbl.x, lbl.y, w, 22);
+            ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+            ctx.strokeRect(lbl.x, lbl.y, w, 22);
+            ctx.fillStyle = '#fff';
+            ctx.fillText(lbl.text, lbl.x + pad, lbl.y + 4);
+            ctx.restore();
+        });
+    }
+
+    addRegionLabel(x, y) {
+        const text = prompt('区域标签（如：会议室、研发区、休息区）', '会议室');
+        if (!text || !text.trim()) return;
+        const lbl = {
+            id: this.nextLabelId++,
+            x: Math.round(x / CONFIG.GRID_SIZE) * CONFIG.GRID_SIZE,
+            y: Math.round(y / CONFIG.GRID_SIZE) * CONFIG.GRID_SIZE,
+            text: text.trim()
+        };
+        this.regionLabels.push(lbl);
+        this.selectedLabel = lbl;
+        this.selectedElement = null;
+        this.saveState();
+        this.updatePropertiesPanel();
+        this.showNotification('区域标签已添加');
+    }
+
+    getLabelAt(x, y) {
+        this.ctx.font = 'bold 14px "Microsoft YaHei", sans-serif';
+        for (let i = this.regionLabels.length - 1; i >= 0; i--) {
+            const lbl = this.regionLabels[i];
+            const m = this.ctx.measureText(lbl.text);
+            const w = m.width + 12;
+            const h = 22;
+            if (x >= lbl.x && x <= lbl.x + w && y >= lbl.y && y <= lbl.y + h)
+                return lbl;
+        }
+        return null;
+    }
+
+    deleteSelectedLabel() {
+        if (!this.selectedLabel) return;
+        this.regionLabels = this.regionLabels.filter(l => l.id !== this.selectedLabel.id);
+        this.selectedLabel = null;
+        this.saveState();
+        this.updatePropertiesPanel();
+        this.showNotification('区域标签已删除');
+    }
+
+    updateLabelText(id, text) {
+        const lbl = this.regionLabels.find(l => l.id === id);
+        if (lbl && text && text.trim()) {
+            lbl.text = text.trim();
+            this.saveState();
         }
     }
 
@@ -1984,11 +2141,30 @@ class MapEditor {
     updatePropertiesPanel() {
         const container = document.getElementById('propertiesContent');
 
+        if (this.selectedLabel && !this.selectedElement) {
+            const lbl = this.selectedLabel;
+            container.innerHTML = `
+                <div class="property-group">
+                    <h3>区域标签</h3>
+                    <div class="property-row">
+                        <span class="property-label">文字</span>
+                        <div class="property-value">
+                            <input type="text" value="${lbl.text}" onchange="editor.updateLabelText(${lbl.id}, this.value)">
+                        </div>
+                    </div>
+                    <div class="property-row">
+                        <button type="button" onclick="editor.deleteSelectedLabel()" style="width:100%;padding:8px;background:#dc3545;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px;">删除标签</button>
+                    </div>
+                </div>
+            `;
+            return;
+        }
+
         if (!this.selectedElement) {
             container.innerHTML = `
                 <div class="empty-state">
                     <div class="empty-state-icon">📋</div>
-                    <div>选择一个元素以编辑属性</div>
+                    <div>选择一个元素或区域标签以编辑</div>
                 </div>
             `;
             return;
@@ -2225,7 +2401,7 @@ class MapEditor {
             if (toolBtn) toolBtn.classList.add('active');
         }
         
-        const cursors = { select: 'default', move: 'move', erase: 'not-allowed', grid: 'crosshair', gridEraser: 'cell', picker: 'crosshair', fill: 'crosshair' };
+        const cursors = { select: 'default', move: 'move', erase: 'not-allowed', label: 'crosshair', grid: 'crosshair', gridEraser: 'cell', picker: 'crosshair', fill: 'crosshair' };
         this.canvas.style.cursor = this.collisionEditMode ? 'cell' : (cursors[this.currentTool] || 'default');
     }
 
@@ -2235,10 +2411,12 @@ class MapEditor {
     }
 
     clearMap() {
-        if (confirm('确定要清空所有元素和绘制层吗？')) {
+        if (confirm('确定要清空所有元素、区域标签和绘制层吗？')) {
             this.saveState();
             this.elements = [];
+            this.regionLabels = [];
             this.selectedElement = null;
+            this.selectedLabel = null;
             if (this.drawLayerCtx) {
                 this.drawLayerCtx.clearRect(0, 0, this.drawLayer.width, this.drawLayer.height);
             }
@@ -2558,6 +2736,10 @@ class MapEditor {
 
         this.elements = [];
         this.selectedElement = null;
+        this.regionLabels = (data.regionLabels || []).map(l => ({ ...l }));
+        this.selectedLabel = null;
+        this.nextLabelId = data.regionLabels && data.regionLabels.length > 0
+            ? Math.max(...data.regionLabels.map(l => l.id || 0)) + 1 : 1;
         this.nextId = 1;
 
         data.elements.forEach(elData => this.createElementFromPreset(elData));
