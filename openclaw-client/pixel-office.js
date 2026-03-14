@@ -282,6 +282,7 @@ class PixelOffice {
         this.updateUI();
         this.renderTasks();
         this.updateDataTab();
+        this.updateLicenseUI();
     }
 
     bindEvents() {
@@ -1584,6 +1585,75 @@ class PixelOffice {
             console.warn('数据面板加载失败', e);
             if (hintEl) hintEl.textContent = '加载失败，请检查网络或 API 配置';
         }
+    }
+
+    // ==================== 许可证 ====================
+
+    updateLicenseUI() {
+        const cached = typeof License !== 'undefined' ? License.getCached() : null;
+        const statusEl = document.getElementById('licenseStatus');
+        const activatedEl = document.getElementById('licenseActivated');
+        const inputEl = document.getElementById('licenseInput');
+        const toggleBtn = document.getElementById('licenseToggleBtn');
+
+        if (cached) {
+            if (statusEl) statusEl.style.display = 'none';
+            if (activatedEl) {
+                activatedEl.style.display = 'block';
+                const productsEl = document.getElementById('licenseProducts');
+                if (productsEl) productsEl.textContent = '已购：' + (cached.products || []).join('、');
+            }
+            if (inputEl) inputEl.style.display = 'none';
+            if (toggleBtn) toggleBtn.textContent = '输入许可证码';
+        } else {
+            if (statusEl) {
+                statusEl.style.display = 'block';
+                statusEl.textContent = '未激活';
+            }
+            if (activatedEl) activatedEl.style.display = 'none';
+            if (inputEl) inputEl.style.display = 'none';
+            if (toggleBtn) toggleBtn.textContent = '输入许可证码';
+        }
+    }
+
+    toggleLicenseInput() {
+        const inputEl = document.getElementById('licenseInput');
+        const toggleBtn = document.getElementById('licenseToggleBtn');
+        if (!inputEl || !toggleBtn) return;
+        const isShow = inputEl.style.display !== 'none';
+        inputEl.style.display = isShow ? 'none' : 'block';
+        toggleBtn.textContent = isShow ? '输入许可证码' : '收起';
+    }
+
+    async activateLicense() {
+        const input = document.getElementById('licenseKeyInput');
+        if (!input || typeof License === 'undefined') return;
+        const key = input.value.trim();
+        if (!key) {
+            this.showNotification('请粘贴许可证码');
+            return;
+        }
+        const result = await License.activate(key);
+        if (result.success) {
+            this.showNotification('激活成功');
+            input.value = '';
+            this.updateLicenseUI();
+        } else {
+            this.showNotification('激活失败：' + (result.error || '未知错误'));
+        }
+    }
+
+    clearLicense() {
+        if (typeof License !== 'undefined') License.clear();
+        this.showNotification('已解除激活');
+        this.updateLicenseUI();
+    }
+
+    /**
+     * 检查是否拥有某付费产品（供地图/元素等调用）
+     */
+    hasLicenseProduct(productId) {
+        return typeof License !== 'undefined' && License.hasProduct(productId);
     }
 }
 
