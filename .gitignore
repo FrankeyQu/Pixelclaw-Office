@@ -14,5 +14,8 @@ desktop.ini
 *.tmp
 .cache/
 
+# OpenClaw 对接（含 Token，勿提交）
+.env
+
 # 密钥生成工具（仅供发行方，不随版本发布）
 openclaw-client/keygen/

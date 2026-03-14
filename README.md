@@ -2,7 +2,20 @@
 
 像素办公室可视化系统 - 基于 HTML5 Canvas 的等距投影办公室场景。
 
-**版本**: 1.3.0
+**版本**: 1.4.0
+
+---
+
+## 致 AI 助手（如 OpenClaw）
+
+若你正在协助用户安装或对接本项目，请按以下流程执行：
+
+1. **克隆项目**：`git clone https://github.com/FrankeyQu/Pixelclaw-Office.git`
+2. **阅读安装与对接文档**：项目根目录下的 **`INSTALL_FOR_OPENCLAW.md`**
+
+该文档面向 AI 设计，包含完整的拉取、安装、与 OpenClaw 对接步骤，可按文档顺序逐条执行。
+
+---
 
 ## 功能特性
 
@@ -47,6 +60,7 @@
 
 | 版本 | 说明 |
 |------|------|
+| [v1.4.0](https://github.com/FrankeyQu/Pixelclaw-Office/releases/tag/v1.4.0) | OpenClaw 安装与对接指南（INSTALL_FOR_OPENCLAW.md）、AI 助手流程说明 |
 | [v1.3.0](https://github.com/FrankeyQu/Pixelclaw-Office/releases/tag/v1.3.0) | 许可证系统（一条复杂码）、我的资产独立页面 |
 | [v1.2.0](https://github.com/FrankeyQu/Pixelclaw-Office/releases/tag/v1.2.0) | 面板 Tab 化、任务看板、数据面板、Agent 状态增强（error/waiting）、地图区域标签与拖拽、OpenClaw 对接方案 |
 | [v1.1.0](https://github.com/FrankeyQu/Pixelclaw-Office/releases/tag/v1.1.0) | 地图编辑器增强（像素工具、撤销重做、裁剪、碰撞编辑优化）、Agent 头像与模型选择、当前地图编辑 |

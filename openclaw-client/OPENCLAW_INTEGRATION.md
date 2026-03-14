@@ -1,5 +1,37 @@
 # Pixelclaw Office 对接 OpenClaw 完整方案
 
+## 〇、快速开始（设置与架构调整清单）
+
+### 环境准备
+1. **安装 OpenClaw**：`npm i -g openclaw`（需 Node.js ≥22）
+2. **启动 Gateway**：`openclaw gateway`（默认 http://127.0.0.1:18789）
+3. **获取 Token**：从 OpenClaw 控制台或 `~/.openclaw/` 配置中获取 Bearer Token
+
+### 架构调整（最小改动）
+| 项目 | 操作 | 说明 |
+|------|------|------|
+| 新增 | `api-proxy.js` | Node 代理，转发请求并注入 Token |
+| 新增 | `api/openclaw-client.js` | 封装对 `/api/openclaw/*` 的调用 |
+| 修改 | `pixel-office.js` | 使用 `OpenClawDataProvider` 替换 MockDataProvider |
+| 新增 | `.env` / `.env.example` | `OPENCLAW_GATEWAY_URL`、`OPENCLAW_TOKEN` |
+| 启动 | 用 Node 代理替代 server.ps1 | 同时提供静态资源 + API 代理 |
+
+### 启动方式
+```bash
+# 1. 确保 OpenClaw Gateway 已启动
+openclaw gateway
+
+# 2. 配置 .env
+cp .env.example .env
+# 编辑 .env 填入 OPENCLAW_GATEWAY_URL 和 OPENCLAW_TOKEN
+
+# 3. 启动开发服务（Node 代理 + 静态资源）
+node api-proxy.js
+# 访问 http://localhost:8088
+```
+
+---
+
 ## 一、架构概览
 
 ### 1.1 现状
@@ -180,18 +212,35 @@ sessions_list / agents_list → 代理层 /api/openclaw/agents
 
 ## 四、目录与文件规划
 
+### 4.1 调整后的目录结构
+
 ```
 openclaw-client/
 ├── OPENCLAW_INTEGRATION.md    # 本文档
-├── api/                       # 可选：集中 API 模块
-│   ├── openclaw-client.js     # 封装对 /api/openclaw/* 的调用
-│   └── types.js               # 接口约定（如有 TS 可替换）
-├── api-proxy.js               # 代理服务入口
-├── api-proxy-config.js        # 代理配置（从 env 读取）
-├── .env.example
-├── pixel-office.js            # 扩展 DataProvider、AgentProvider
-└── index.html
+├── .env.example               # 配置模板（不提交 .env）
+├── .env                       # 实际配置（gitignore，勿提交）
+├── api-proxy.js               # 代理服务：静态资源 + API 转发
+├── api/
+│   └── openclaw-client.js     # 封装 fetch('/api/openclaw/xxx')
+├── pixel-office.js            # 使用 OpenClawDataProvider
+├── index.html
+├── server.ps1                 # 保留：纯静态时可单独用
+└── ...
 ```
+
+### 4.2 各文件职责
+
+| 文件 | 职责 |
+|------|------|
+| `api-proxy.js` | 监听 8088，静态文件走本地，`/api/openclaw/*` 转发到 Gateway |
+| `api/openclaw-client.js` | `fetchUsage()`, `fetchSessions()` 等，统一走 `/api/openclaw/...` |
+| `pixel-office.js` | `this.dataProvider = new OpenClawDataProvider('/api/openclaw')` |
+| `.env` | `OPENCLAW_GATEWAY_URL`, `OPENCLAW_TOKEN` |
+
+### 4.3 是否需要新建分支
+
+- **建议**：在 `feature/openclaw-integration` 分支开发，完成后再合并 `main`
+- **命令**：`git checkout -b feature/openclaw-integration`
 
 ---
 
@@ -245,3 +294,72 @@ OPENCLAW_TOKEN=your_bearer_token
 - [Tools Invoke API](https://openclawlab.com/en/docs/gateway/tools-invoke-http-api/)
 - [API Usage and Costs](https://openclawlab.com/en/docs/reference/api-usage-costs/)
 - [Gateway Configuration](https://openclaw.cc/en/gateway/configuration)
+
+---
+
+## 九、实施步骤（按顺序执行）
+
+### Step 1：环境与 OpenClaw
+
+```bash
+# 安装 OpenClaw（需 Node ≥22）
+npm i -g openclaw
+
+# 配置（首次运行会引导）
+openclaw configure
+
+# 启动 Gateway（另开终端保持运行）
+openclaw gateway
+# 默认 http://127.0.0.1:18789
+```
+
+### Step 2：获取 Token
+
+- 打开 http://127.0.0.1:18789 控制台
+- 或查看 `~/.openclaw/` 下配置文件中的 token / apiKey
+
+### Step 3：创建 .env.example 与 .env
+
+```bash
+# .env.example（提交到 git）
+OPENCLAW_GATEWAY_URL=http://127.0.0.1:18789
+OPENCLAW_TOKEN=
+
+# .env（不提交，本地填写）
+OPENCLAW_GATEWAY_URL=http://127.0.0.1:18789
+OPENCLAW_TOKEN=你的实际token
+```
+
+### Step 4：新增 api-proxy.js
+
+- 使用 Node `http` + `http-proxy` 或 `fetch` 转发
+- 静态：`/`、`/*.html`、`/*.js` 等 → 本地 `openclaw-client/` 目录
+- API：`/api/openclaw/*` → `{GATEWAY}/*`，请求头加 `Authorization: Bearer ${TOKEN}`
+
+### Step 5：新增 api/openclaw-client.js
+
+```javascript
+// 示例
+async function fetchUsage() {
+  const res = await fetch('/api/openclaw/usage');
+  return res.json();
+}
+```
+
+### Step 6：代理层实现 /api/openclaw/usage
+
+- 内部调用 Gateway `POST /tools/invoke`，tool=`sessions_list`
+- 聚合 rows 的 token 字段，返回 `{ tokenUsage, cost, isLive: true }`
+
+### Step 7：修改 pixel-office.js
+
+```javascript
+// 将 MockDataProvider 替换为
+this.dataProvider = new OpenClawDataProvider('/api/openclaw');
+```
+
+### Step 8：验证
+
+1. `node api-proxy.js` 启动
+2. 打开 http://localhost:8088
+3. 切换到「数据」Tab，应显示真实用量
