@@ -13,3 +13,6 @@ desktop.ini
 *.log
 *.tmp
 .cache/
+
+# 密钥生成工具（仅供发行方，不随版本发布）
+openclaw-client/keygen/
