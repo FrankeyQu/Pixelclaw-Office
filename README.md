@@ -2,7 +2,7 @@
 
 像素办公室可视化系统 - 基于 HTML5 Canvas 的等距投影办公室场景。
 
-**版本**: 1.2.0
+**版本**: 1.3.0
 
 ## 功能特性
 
@@ -15,6 +15,8 @@
 - **任务看板**：四列 Kanban（待办 / 进行中 / 需确认 / 完成），可关联 Agent
 - **数据面板**：Token 用量与成本（支持 DataProvider 对接 OpenClaw）
 - **区域标签**：地图编辑器支持添加、拖拽、编辑区域标签（会议室、研发区等）
+- **许可证系统**：一条复杂码许可证校验
+- **我的资产**：独立资产管理页面
 
 ## 快速开始
 
@@ -45,6 +47,7 @@
 
 | 版本 | 说明 |
 |------|------|
+| [v1.3.0](https://github.com/FrankeyQu/Pixelclaw-Office/releases/tag/v1.3.0) | 许可证系统（一条复杂码）、我的资产独立页面 |
 | [v1.2.0](https://github.com/FrankeyQu/Pixelclaw-Office/releases/tag/v1.2.0) | 面板 Tab 化、任务看板、数据面板、Agent 状态增强（error/waiting）、地图区域标签与拖拽、OpenClaw 对接方案 |
 | [v1.1.0](https://github.com/FrankeyQu/Pixelclaw-Office/releases/tag/v1.1.0) | 地图编辑器增强（像素工具、撤销重做、裁剪、碰撞编辑优化）、Agent 头像与模型选择、当前地图编辑 |
 | v1.0.0 | 初始版本 |
