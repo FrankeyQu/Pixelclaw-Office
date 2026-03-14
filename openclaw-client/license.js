@@ -2,7 +2,7 @@
  * Pixelclaw Office 许可证验证模块
  * 支持离线验签：用户购买后获得一条复杂码，粘贴即用
  *
- * 密钥格式：PXO-<base64url(payload)>-<base64url(hmac)>
+ * 密钥格式：PXO-<base64url(payload)>.<base64url(hmac)>
  * payload: { products: string[], type: "site"|"personal", expiry: string, holder?: string }
  */
 
