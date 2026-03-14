@@ -23,6 +23,11 @@ cd Pixelclaw-Office
 **步骤 0.3**：确认目录结构  
 项目根目录下应包含 `openclaw-client` 文件夹及本文件 `INSTALL_FOR_OPENCLAW.md`。确认后，从「一、项目概述」起按后续章节执行。
 
+**步骤 0.4（可选）**：若需安装**对接模块分支** `feature/openclaw-integration`（含 OpenClaw 安装与对接文档），二选一：
+- 方式 A：克隆后切换：`git checkout feature/openclaw-integration`
+- 方式 B：直接克隆该分支：`git clone -b feature/openclaw-integration https://github.com/FrankeyQu/Pixelclaw-Office.git`
+未执行此步骤时，默认使用 `main` 分支。
+
 ---
 
 ## 一、项目概述
